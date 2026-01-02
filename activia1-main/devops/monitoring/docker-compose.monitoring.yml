@@ -1,0 +1,275 @@
+# ============================================================================
+# Docker Compose - Monitoring Stack (Prometheus + Grafana)
+# ============================================================================
+# Extend docker-compose.yml con servicios de monitoreo
+#
+# REMEDIACIÓN: HIGH-01 - Implementar Prometheus metrics
+# Updated: 2025-12-30 - Fixed credentials, versions, paths, enabled exporters
+#
+# Uso:
+#   docker-compose -f docker-compose.yml -f devops/monitoring/docker-compose.monitoring.yml up -d
+#
+# O con perfiles (recomendado):
+#   docker-compose --profile monitoring up -d
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # Prometheus - Metrics Storage & Querying
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.53.0  # Updated version
+    container_name: ai-native-prometheus
+    profiles:
+      - monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+    networks:
+      - ai-native-network
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    depends_on:
+      - api
+
+  # ==========================================================================
+  # Grafana - Visualization & Dashboards
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:11.3.0  # Updated version
+    container_name: ai-native-grafana
+    profiles:
+      - monitoring
+    ports:
+      - "3001:3000"
+    environment:
+      # Security - use environment variables, not hardcoded
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      - GF_INSTALL_PLUGINS=
+
+      # Datasources provisioning
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+
+      # Server settings
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3001}
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+
+      # Security settings
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=true
+
+      # Analytics (disable telemetry)
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+
+      # Users settings
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Fixed path - use provisioning subdirectory
+      - ./provisioning:/etc/grafana/provisioning:ro
+
+    networks:
+      - ai-native-network
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    depends_on:
+      - prometheus
+
+  # ==========================================================================
+  # Alertmanager - Alert Management
+  # ==========================================================================
+  # FIX Cortez49: Added configuration validation script
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ai-native-alertmanager
+    profiles:
+      - monitoring
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/validate-config.sh:/validate-config.sh:ro
+      - alertmanager_data:/alertmanager
+    # FIX Cortez49: Run validation before starting alertmanager
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Validating Alertmanager configuration..."
+        /bin/sh /validate-config.sh
+        echo "Starting Alertmanager..."
+        exec /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.external-url=$${ALERTMANAGER_URL:-http://localhost:9093}
+    environment:
+      # Email configuration (override in .env)
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_FROM=${SMTP_FROM:-alertmanager@example.com}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - ALERT_EMAIL=${ALERT_EMAIL:-admin@example.com}
+      - DBA_EMAIL=${DBA_EMAIL:-dba@example.com}
+      # Set to 'true' to fail startup if no notification channels configured
+      - ALERTMANAGER_STRICT_MODE=${ALERTMANAGER_STRICT_MODE:-false}
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ==========================================================================
+  # Postgres Exporter - PostgreSQL Metrics
+  # ==========================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: ai-native-postgres-exporter
+    profiles:
+      - monitoring
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-ai_native}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_native}?sslmode=disable
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+  # ==========================================================================
+  # Redis Exporter - Redis Metrics
+  # ==========================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: ai-native-redis-exporter
+    profiles:
+      - monitoring
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required for redis-exporter}
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  # ==========================================================================
+  # Node Exporter (Optional) - Host Metrics
+  # ==========================================================================
+  # Uncomment to enable host metrics
+  # node-exporter:
+  #   image: prom/node-exporter:v1.8.0
+  #   container_name: ai-native-node-exporter
+  #   profiles:
+  #     - monitoring
+  #   ports:
+  #     - "9100:9100"
+  #   command:
+  #     - '--path.procfs=/host/proc'
+  #     - '--path.sysfs=/host/sys'
+  #     - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+  #   volumes:
+  #     - /proc:/host/proc:ro
+  #     - /sys:/host/sys:ro
+  #   networks:
+  #     - ai-native-network
+  #   restart: unless-stopped
+
+# ============================================================================
+# Volumes (Data Persistence)
+# ============================================================================
+volumes:
+  prometheus_data:
+    name: ai-native-prometheus-data
+    driver: local
+
+  grafana_data:
+    name: ai-native-grafana-data
+    driver: local
+
+  alertmanager_data:
+    name: ai-native-alertmanager-data
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  ai-native-network:
+    external: true
+    name: ai-native-network
+
+# ============================================================================
+# Usage Notes
+# ============================================================================
+#
+# REQUIRED ENVIRONMENT VARIABLES:
+#   - GRAFANA_ADMIN_PASSWORD: Grafana admin password (REQUIRED!)
+#   - POSTGRES_PASSWORD: PostgreSQL password for exporter
+#   - REDIS_PASSWORD: Redis password for exporter
+#
+# OPTIONAL ENVIRONMENT VARIABLES:
+#   - GRAFANA_ADMIN_USER: Grafana admin username (default: admin)
+#   - GRAFANA_ROOT_URL: External Grafana URL
+#   - SMTP_*: Email settings for Alertmanager
+#   - SLACK_WEBHOOK_URL: Slack webhook for alerts
+#
+# START MONITORING STACK:
+#   # Set required password first!
+#   export GRAFANA_ADMIN_PASSWORD=$(python -c "import secrets; print(secrets.token_urlsafe(16))")
+#   docker-compose --profile monitoring up -d
+#
+# ACCESS WEB INTERFACES:
+#   - API Swagger: http://localhost:8000/docs
+#   - API Metrics: http://localhost:8000/metrics
+#   - Prometheus UI: http://localhost:9090
+#   - Grafana UI: http://localhost:3001 (user: admin, password: $GRAFANA_ADMIN_PASSWORD)
+#   - Alertmanager: http://localhost:9093
+#
+# STOP STACK:
+#   docker-compose --profile monitoring down
+#
+# VIEW LOGS:
+#   docker-compose --profile monitoring logs -f prometheus
+#   docker-compose --profile monitoring logs -f grafana
+#
+# RELOAD PROMETHEUS CONFIG (without restart):
+#   curl -X POST http://localhost:9090/-/reload
+#
+# ============================================================================

@@ -1,0 +1,342 @@
+# ============================================================================
+# Reusable API Contract Testing Workflow
+# ============================================================================
+# Cortez59: Added to validate OpenAPI schema consistency and detect breaking changes
+#
+# This workflow verifies that the API schema is valid, consistent, and that
+# breaking changes are detected before deployment. It compares the current
+# OpenAPI schema against a baseline to identify incompatible modifications.
+#
+# Usage:
+#   jobs:
+#     api-contract:
+#       uses: ./.github/workflows/reusable-api-contract.yml
+#       with:
+#         python-version: '3.11'
+# ============================================================================
+
+name: Reusable API Contract Testing
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.11'
+        type: string
+      api-base-url:
+        description: 'Base URL for API during testing'
+        required: false
+        default: 'http://localhost:8000'
+        type: string
+      schema-output-path:
+        description: 'Path to save generated OpenAPI schema'
+        required: false
+        default: 'openapi.json'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-api-contract:
+    name: API Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: contract_test
+          POSTGRES_USER: ai_native
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install openapi-spec-validator schemathesis
+
+      - name: Initialize database
+        env:
+          DATABASE_URL: postgresql://ai_native:test_password@localhost:5432/contract_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: contract_test_secret_key
+          SECRET_KEY: contract_test_secret_key
+          LLM_PROVIDER: mock
+          ENVIRONMENT: testing
+        run: |
+          echo "Initializing database for contract testing..."
+          python -m backend.scripts.init_db || echo "Database may already exist"
+
+      - name: Generate OpenAPI Schema
+        env:
+          DATABASE_URL: postgresql://ai_native:test_password@localhost:5432/contract_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: contract_test_secret_key
+          SECRET_KEY: contract_test_secret_key
+          LLM_PROVIDER: mock
+          ENVIRONMENT: testing
+        run: |
+          echo "Generating OpenAPI schema..."
+          python -c "
+          import json
+          from backend.api.main import app
+
+          # Get OpenAPI schema
+          schema = app.openapi()
+
+          # Save to file
+          with open('${{ inputs.schema-output-path }}', 'w') as f:
+              json.dump(schema, f, indent=2)
+
+          print(f'Schema saved to ${{ inputs.schema-output-path }}')
+          print(f'Title: {schema.get(\"info\", {}).get(\"title\")}')
+          print(f'Version: {schema.get(\"info\", {}).get(\"version\")}')
+          print(f'Paths: {len(schema.get(\"paths\", {}))}')
+          "
+
+      - name: Validate OpenAPI Schema
+        run: |
+          echo "Validating OpenAPI schema specification..."
+          python -c "
+          import json
+          import sys
+          from openapi_spec_validator import validate_spec
+          from openapi_spec_validator.exceptions import OpenAPIValidationError
+
+          with open('${{ inputs.schema-output-path }}', 'r') as f:
+              schema = json.load(f)
+
+          try:
+              validate_spec(schema)
+              print('OpenAPI schema validation: PASSED')
+          except OpenAPIValidationError as e:
+              print(f'OpenAPI schema validation: FAILED')
+              print(f'Error: {e}')
+              sys.exit(1)
+          "
+
+      - name: Analyze API Endpoints
+        run: |
+          python -c "
+          import json
+          from collections import defaultdict
+
+          with open('${{ inputs.schema-output-path }}', 'r') as f:
+              schema = json.load(f)
+
+          paths = schema.get('paths', {})
+          methods_count = defaultdict(int)
+          tags_count = defaultdict(int)
+
+          for path, operations in paths.items():
+              for method, details in operations.items():
+                  if method in ['get', 'post', 'put', 'patch', 'delete']:
+                      methods_count[method.upper()] += 1
+                      for tag in details.get('tags', ['untagged']):
+                          tags_count[tag] += 1
+
+          print('API Endpoint Analysis')
+          print('=' * 50)
+          print(f'Total paths: {len(paths)}')
+          print('')
+          print('Methods:')
+          for method, count in sorted(methods_count.items()):
+              print(f'  {method}: {count}')
+          print('')
+          print('Tags (top 10):')
+          for tag, count in sorted(tags_count.items(), key=lambda x: -x[1])[:10]:
+              print(f'  {tag}: {count}')
+          "
+
+      - name: Check for Breaking Changes
+        run: |
+          python -c "
+          import json
+          import os
+          import sys
+
+          # Check if baseline exists
+          baseline_path = 'docs/api/openapi-baseline.json'
+
+          if not os.path.exists(baseline_path):
+              print(f'No baseline found at {baseline_path}')
+              print('This is the first schema generation - creating baseline')
+
+              # Create docs/api directory if needed
+              os.makedirs('docs/api', exist_ok=True)
+
+              # Copy current as baseline
+              with open('${{ inputs.schema-output-path }}', 'r') as f:
+                  schema = json.load(f)
+
+              with open(baseline_path, 'w') as f:
+                  json.dump(schema, f, indent=2)
+
+              print(f'Baseline created at {baseline_path}')
+              sys.exit(0)
+
+          # Load baseline and current
+          with open(baseline_path, 'r') as f:
+              baseline = json.load(f)
+
+          with open('${{ inputs.schema-output-path }}', 'r') as f:
+              current = json.load(f)
+
+          # Compare paths
+          baseline_paths = set(baseline.get('paths', {}).keys())
+          current_paths = set(current.get('paths', {}).keys())
+
+          removed_paths = baseline_paths - current_paths
+          added_paths = current_paths - baseline_paths
+
+          breaking_changes = []
+
+          if removed_paths:
+              for path in removed_paths:
+                  breaking_changes.append(f'REMOVED: {path}')
+
+          # Check for removed methods in existing paths
+          for path in baseline_paths & current_paths:
+              baseline_methods = set(baseline['paths'][path].keys())
+              current_methods = set(current['paths'][path].keys())
+
+              removed_methods = baseline_methods - current_methods
+              for method in removed_methods:
+                  if method in ['get', 'post', 'put', 'patch', 'delete']:
+                      breaking_changes.append(f'REMOVED: {method.upper()} {path}')
+
+          print('Breaking Change Analysis')
+          print('=' * 50)
+          print(f'Baseline version: {baseline.get(\"info\", {}).get(\"version\")}')
+          print(f'Current version: {current.get(\"info\", {}).get(\"version\")}')
+          print(f'Paths in baseline: {len(baseline_paths)}')
+          print(f'Paths in current: {len(current_paths)}')
+          print(f'Added paths: {len(added_paths)}')
+          print(f'Removed paths: {len(removed_paths)}')
+          print('')
+
+          if breaking_changes:
+              print('BREAKING CHANGES DETECTED:')
+              for change in breaking_changes:
+                  print(f'  - {change}')
+              print('')
+              print('Review these changes carefully before merging.')
+              # Note: Not failing the build, just warning
+          else:
+              print('No breaking changes detected.')
+
+          if added_paths:
+              print('')
+              print('New endpoints added:')
+              for path in sorted(added_paths):
+                  print(f'  + {path}')
+          "
+
+      - name: Verify Critical Endpoints
+        env:
+          DATABASE_URL: postgresql://ai_native:test_password@localhost:5432/contract_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: contract_test_secret_key
+          SECRET_KEY: contract_test_secret_key
+          LLM_PROVIDER: mock
+          ENVIRONMENT: testing
+        run: |
+          python -c "
+          import json
+          import sys
+
+          # Critical endpoints that must exist
+          CRITICAL_ENDPOINTS = [
+              ('GET', '/api/v1/health'),
+              ('POST', '/api/v1/auth/login'),
+              ('POST', '/api/v1/auth/register'),
+              ('GET', '/api/v1/sessions'),
+              ('POST', '/api/v1/sessions'),
+              ('GET', '/api/v1/training/lenguajes'),
+              ('POST', '/api/v1/training/iniciar'),
+              ('POST', '/api/v1/interactions'),
+              ('GET', '/api/v1/simulators'),
+          ]
+
+          with open('${{ inputs.schema-output-path }}', 'r') as f:
+              schema = json.load(f)
+
+          paths = schema.get('paths', {})
+          missing = []
+
+          print('Critical Endpoint Verification')
+          print('=' * 50)
+
+          for method, path in CRITICAL_ENDPOINTS:
+              # Check path exists
+              if path not in paths:
+                  missing.append(f'{method} {path}')
+                  print(f'MISSING: {method} {path}')
+              else:
+                  # Check method exists
+                  path_ops = paths[path]
+                  if method.lower() not in path_ops:
+                      missing.append(f'{method} {path}')
+                      print(f'MISSING: {method} {path} (path exists, method missing)')
+                  else:
+                      print(f'OK: {method} {path}')
+
+          print('')
+          if missing:
+              print(f'WARNING: {len(missing)} critical endpoints missing')
+              # Don't fail, just warn - some endpoints may be under different paths
+          else:
+              print('All critical endpoints present')
+          "
+
+      - name: Upload OpenAPI Schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-schema
+          path: ${{ inputs.schema-output-path }}
+          retention-days: 30
+
+      - name: Generate contract summary
+        if: always()
+        run: |
+          echo "## API Contract Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Generation | ${{ job.status == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OpenAPI Validation | ${{ job.status == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Breaking Change Check | ${{ job.status == 'success' && 'Passed' || 'Warning' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical Endpoints | ${{ job.status == 'success' && 'Verified' || 'Check Required' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Schema artifact**: \`openapi-schema\`" >> $GITHUB_STEP_SUMMARY

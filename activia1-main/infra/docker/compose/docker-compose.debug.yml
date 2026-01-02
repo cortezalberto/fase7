@@ -1,0 +1,66 @@
+# ============================================================================
+# AI-Native MVP - Debug Tools (pgAdmin + Redis Commander)
+# ============================================================================
+# Cortez44: Extracted from docker-compose.yml for modularization
+#
+# Usage:
+#   docker-compose -f docker-compose.base.yml -f docker-compose.debug.yml up -d
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # pgAdmin - PostgreSQL Administration
+  # ==========================================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ai-native-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@ai-native.local}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required}
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    depends_on:
+      - postgres
+
+  # ==========================================================================
+  # Redis Commander - Redis Administration
+  # ==========================================================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: ai-native-redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - HTTP_USER=${REDIS_COMMANDER_USER:-admin}
+      - HTTP_PASSWORD=${REDIS_COMMANDER_PASSWORD:?REDIS_COMMANDER_PASSWORD is required}
+    ports:
+      - "8081:8081"
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    depends_on:
+      - redis
+
+networks:
+  ai-native-network:
+    external: true
+    name: ai-native-network
+
+volumes:
+  pgadmin_data:
+    name: ai-native-pgadmin-data

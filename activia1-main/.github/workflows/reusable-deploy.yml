@@ -1,0 +1,139 @@
+# ============================================================================
+# Reusable Kubernetes Deploy Workflow
+# ============================================================================
+# Cortez44: Extracted from ci.yml for reusability
+#
+# Usage:
+#   jobs:
+#     deploy:
+#       uses: ./.github/workflows/reusable-deploy.yml
+#       with:
+#         environment: 'staging'
+#         namespace: 'ai-native-staging'
+#       secrets:
+#         kube-config: ${{ secrets.KUBE_CONFIG_STAGING }}
+# ============================================================================
+
+name: Reusable Kubernetes Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment name'
+        required: true
+        type: string
+      environment-url:
+        description: 'Environment URL'
+        required: false
+        default: ''
+        type: string
+      namespace:
+        description: 'Kubernetes namespace'
+        required: true
+        type: string
+      manifests-path:
+        description: 'Path to Kubernetes manifests'
+        required: false
+        default: 'devops/kubernetes/staging/'
+        type: string
+      kubectl-version:
+        description: 'kubectl version'
+        required: false
+        default: 'v1.28.0'
+        type: string
+      rollout-timeout:
+        description: 'Rollout timeout in seconds'
+        required: false
+        default: '300'
+        type: string
+      backend-deployment:
+        description: 'Backend deployment name'
+        required: false
+        default: 'ai-native-backend'
+        type: string
+      frontend-deployment:
+        description: 'Frontend deployment name'
+        required: false
+        default: 'ai-native-frontend'
+        type: string
+    secrets:
+      kube-config:
+        description: 'Base64 encoded kubeconfig'
+        required: true
+
+# FIX Cortez49: Added explicit permissions and timeouts
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: 🚀 Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment-url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: ${{ inputs.kubectl-version }}
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.kube-config }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Verify cluster access
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Update image tags in manifests
+        env:
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          cd ${{ inputs.manifests-path }}
+          sed -i "s|your-registry.com/ai-native-backend:latest|${REGISTRY}/${IMAGE_NAME}-backend:${{ github.sha }}|g" 06-backend.yaml || true
+          sed -i "s|your-registry.com/ai-native-frontend:latest|${REGISTRY}/${IMAGE_NAME}-frontend:${{ github.sha }}|g" 07-frontend.yaml || true
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f ${{ inputs.manifests-path }}
+
+      - name: Wait for backend rollout
+        run: |
+          kubectl rollout status deployment/${{ inputs.backend-deployment }} \
+            -n ${{ inputs.namespace }} \
+            --timeout=${{ inputs.rollout-timeout }}s
+
+      - name: Wait for frontend rollout
+        run: |
+          kubectl rollout status deployment/${{ inputs.frontend-deployment }} \
+            -n ${{ inputs.namespace }} \
+            --timeout=${{ inputs.rollout-timeout }}s
+
+      - name: Verify deployment
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -n ${{ inputs.namespace }}
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n ${{ inputs.namespace }}
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress -n ${{ inputs.namespace }}
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "Deployment to ${{ inputs.environment }} completed with status: ${{ job.status }}"
+          echo "Namespace: ${{ inputs.namespace }}"
+          echo "Commit: ${{ github.sha }}"

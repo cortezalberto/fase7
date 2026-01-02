@@ -1,0 +1,545 @@
+# ============================================================================
+# AI-Native MVP - Production Docker Compose
+# ============================================================================
+# IMPORTANT: This file is for PRODUCTION deployment
+# - No exposed database ports
+# - Secrets via Docker Secrets or external manager
+# - No volume mounts for code
+# - Resource limits enforced
+# - TLS/SSL ready
+#
+# Usage:
+#   docker-compose -f docker-compose.prod.yml up -d
+#   docker-compose -f docker-compose.prod.yml --profile monitoring up -d
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # API Backend - FastAPI Application
+  # ==========================================================================
+  api:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-ai-native-mvp}-backend:${IMAGE_TAG:-latest}
+    container_name: ai-native-api
+
+    environment:
+      # Database (use secrets in real production)
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ai_native}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_native}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-30}
+      - DB_POOL_TIMEOUT=10
+      - DB_POOL_RECYCLE=3600
+
+      # Redis
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - LLM_CACHE_ENABLED=true
+      - LLM_CACHE_TTL=3600
+
+      # LLM Provider
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+
+      # Security
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - SECRET_KEY=${SECRET_KEY}
+
+      # Application - PRODUCTION settings
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=${LOG_LEVEL:-warning}
+      - APP_WORKERS=${APP_WORKERS:-0}
+
+      # CORS - Restrict to production domains only
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://app.ai-native.example.com}
+
+      # Metrics security
+      - METRICS_API_KEY=${METRICS_API_KEY}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # NO volume mounts in production (code baked into image)
+
+    networks:
+      - ai-native-internal
+      - ai-native-frontend
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=ai-native-api,environment=production"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M,mode=1777
+
+  # ==========================================================================
+  # Frontend - React + Nginx
+  # ==========================================================================
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-ai-native-mvp}-frontend:${IMAGE_TAG:-latest}
+    container_name: ai-native-frontend
+
+    # Only expose if not using external load balancer
+    # ports:
+    #   - "80:80"
+    #   - "443:443"
+
+    environment:
+      - NODE_ENV=production
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    networks:
+      - ai-native-frontend
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+      replicas: 2
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=50M
+      - /var/run:size=10M
+      - /tmp:size=10M
+
+  # ==========================================================================
+  # PostgreSQL Database - NO EXTERNAL PORT EXPOSURE
+  # ==========================================================================
+  postgres:
+    image: postgres:15.7-alpine
+    container_name: ai-native-postgres
+
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-ai_native}
+      - POSTGRES_USER=${POSTGRES_USER:-ai_native}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+
+    # NO external ports in production!
+    # Access via: docker-compose exec postgres psql -U ai_native
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: backup directory
+      - postgres_backups:/backups
+
+    networks:
+      - ai-native-internal
+
+    restart: always
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_native} -d ${POSTGRES_DB:-ai_native}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=2GB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=32MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=2GB"
+      - "-c"
+      - "max_wal_size=8GB"
+      # Security settings
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_disconnections=on"
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ==========================================================================
+  # Redis Cache - NO EXTERNAL PORT EXPOSURE
+  # ==========================================================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: ai-native-redis
+
+    # NO external ports in production!
+
+    volumes:
+      - redis_data:/data
+
+    networks:
+      - ai-native-internal
+
+    restart: always
+
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD}"
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--maxmemory"
+      - "512mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      # Security settings
+      - "--protected-mode"
+      - "yes"
+      - "--rename-command"
+      - "FLUSHALL"
+      - ""
+      - "--rename-command"
+      - "FLUSHDB"
+      - ""
+      - "--rename-command"
+      - "DEBUG"
+      - ""
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+  # ==========================================================================
+  # Prometheus - Metrics (monitoring profile)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: ai-native-prometheus
+
+    volumes:
+      - ./infra/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/docker/prometheus/prometheus-alerts.yml:/etc/prometheus/alerts/alerts.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=20GB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+
+    networks:
+      - ai-native-internal
+      - ai-native-monitoring
+
+    restart: always
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+
+    profiles:
+      - monitoring
+
+    depends_on:
+      - api
+
+  # ==========================================================================
+  # Grafana - Dashboards (monitoring profile)
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: ai-native-grafana
+
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3001}
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/docker/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    networks:
+      - ai-native-monitoring
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    profiles:
+      - monitoring
+
+    depends_on:
+      - prometheus
+
+  # ==========================================================================
+  # Alertmanager (monitoring profile)
+  # ==========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: ai-native-alertmanager
+
+    volumes:
+      - ./infra/docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=${ALERTMANAGER_URL:-http://localhost:9093}'
+
+    networks:
+      - ai-native-monitoring
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # PostgreSQL Exporter (monitoring profile)
+  # ==========================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: ai-native-postgres-exporter
+
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-ai_native}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_native}?sslmode=disable
+
+    networks:
+      - ai-native-internal
+      - ai-native-monitoring
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+
+    profiles:
+      - monitoring
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Redis Exporter (monitoring profile)
+  # ==========================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    container_name: ai-native-redis-exporter
+
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+
+    networks:
+      - ai-native-internal
+      - ai-native-monitoring
+
+    restart: always
+
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+
+    profiles:
+      - monitoring
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+# ============================================================================
+# Networks - Isolated by purpose
+# ============================================================================
+networks:
+  # Internal network for backend services (DB, Redis, API)
+  ai-native-internal:
+    driver: bridge
+    internal: true  # No external access
+    name: ai-native-internal
+
+  # Frontend network (API, Frontend)
+  ai-native-frontend:
+    driver: bridge
+    name: ai-native-frontend
+
+  # Monitoring network
+  ai-native-monitoring:
+    driver: bridge
+    internal: true
+    name: ai-native-monitoring
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_data:
+    name: ai-native-postgres-data-prod
+    driver: local
+
+  postgres_backups:
+    name: ai-native-postgres-backups
+    driver: local
+
+  redis_data:
+    name: ai-native-redis-data-prod
+    driver: local
+
+  prometheus_data:
+    name: ai-native-prometheus-data-prod
+    driver: local
+
+  grafana_data:
+    name: ai-native-grafana-data-prod
+    driver: local
+
+  alertmanager_data:
+    name: ai-native-alertmanager-data
+    driver: local

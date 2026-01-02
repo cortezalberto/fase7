@@ -1,0 +1,212 @@
+# ============================================================================
+# Automated Release Workflow
+# ============================================================================
+# Cortez45: Creates releases with changelog on version tags
+#
+# Triggered by pushing tags like v1.0.0, v1.2.3-beta, etc.
+# ============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Create Release
+  # ============================================================================
+  release:
+    name: 🚀 Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+      is-prerelease: ${{ steps.get-version.outputs.is-prerelease }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get-version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+            IS_PRERELEASE="${{ inputs.prerelease }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            # Check if it's a prerelease (contains -, like v1.0.0-beta)
+            if [[ "$VERSION" == *"-"* ]]; then
+              IS_PRERELEASE="true"
+            else
+              IS_PRERELEASE="false"
+            fi
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is-prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION (Pre-release: $IS_PRERELEASE)"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, using all commits"
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            echo "Generating changelog from $PREV_TAG to HEAD"
+            COMMITS=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+
+          # Create changelog with categories
+          echo "## What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          # Features
+          FEATURES=$(echo "$COMMITS" | grep -iE "^- (feat|feature|add)" || true)
+          if [ -n "$FEATURES" ]; then
+            echo "### ✨ Features" >> CHANGELOG.md
+            echo "$FEATURES" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Bug Fixes
+          FIXES=$(echo "$COMMITS" | grep -iE "^- (fix|bug|patch)" || true)
+          if [ -n "$FIXES" ]; then
+            echo "### 🐛 Bug Fixes" >> CHANGELOG.md
+            echo "$FIXES" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Documentation
+          DOCS=$(echo "$COMMITS" | grep -iE "^- (doc|docs)" || true)
+          if [ -n "$DOCS" ]; then
+            echo "### 📚 Documentation" >> CHANGELOG.md
+            echo "$DOCS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Other changes
+          OTHERS=$(echo "$COMMITS" | grep -viE "^- (feat|feature|add|fix|bug|patch|doc|docs)" || true)
+          if [ -n "$OTHERS" ]; then
+            echo "### 🔧 Other Changes" >> CHANGELOG.md
+            echo "$OTHERS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Add full changelog link
+          if [ -n "$PREV_TAG" ]; then
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ steps.get-version.outputs.version }}" >> CHANGELOG.md
+          fi
+
+          cat CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get-version.outputs.version }}
+          name: Release ${{ steps.get-version.outputs.version }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ steps.get-version.outputs.is-prerelease == 'true' }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Build and Push Docker Images
+  # ============================================================================
+  docker:
+    name: 🐳 Build Release Images
+    needs: release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - name: backend
+            context: .
+            dockerfile: ./Dockerfile
+          - name: frontend
+            context: ./frontEnd
+            dockerfile: ./frontEnd/Dockerfile
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ needs.release.outputs.is-prerelease == 'false' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.release.outputs.version }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+  # ============================================================================
+  # Notify
+  # ============================================================================
+  notify:
+    name: 📢 Notify Release
+    needs: [release, docker]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Release Summary
+        run: |
+          echo "## 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ needs.release.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pre-release | ${{ needs.release.outputs.is-prerelease }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Release Status | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Status | ${{ needs.docker.result }} |" >> $GITHUB_STEP_SUMMARY

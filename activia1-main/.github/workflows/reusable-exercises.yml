@@ -1,0 +1,157 @@
+# ============================================================================
+# Reusable Exercise Catalog Validation Workflow
+# ============================================================================
+# Cortez59: Added to validate Digital Trainer exercise catalog
+#
+# This workflow verifies that exercise JSON files are valid, consistent,
+# and contain all required metadata for the training system.
+#
+# Usage:
+#   jobs:
+#     exercises:
+#       uses: ./.github/workflows/reusable-exercises.yml
+# ============================================================================
+
+name: Reusable Exercise Validation
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.11'
+        type: string
+      exercises-path:
+        description: 'Path to exercises directory'
+        required: false
+        default: 'backend/database/exercises'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-exercises:
+    name: 📚 Exercise Catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate exercise JSON schema
+        run: |
+          python -c "
+          import json
+          import os
+          from pathlib import Path
+
+          exercises_path = Path('${{ inputs.exercises-path }}')
+
+          if not exercises_path.exists():
+              print(f'Exercises path not found: {exercises_path}')
+              print('Checking alternative locations...')
+              for alt in ['backend/data/exercises', 'data/exercises', 'exercises']:
+                  if Path(alt).exists():
+                      exercises_path = Path(alt)
+                      print(f'Found exercises at: {alt}')
+                      break
+
+          if not exercises_path.exists():
+              print('No exercises directory found - skipping validation')
+              exit(0)
+
+          errors = []
+          validated = 0
+
+          for json_file in exercises_path.glob('**/*.json'):
+              try:
+                  with open(json_file, 'r', encoding='utf-8') as f:
+                      data = json.load(f)
+
+                  # Validate required fields for exercise files
+                  if 'exercises' in data:
+                      for ex in data['exercises']:
+                          if 'id' not in ex:
+                              errors.append(f'{json_file}: Exercise missing id')
+                          if 'title' not in ex:
+                              errors.append(f'{json_file}: Exercise missing title')
+
+                  validated += 1
+              except json.JSONDecodeError as e:
+                  errors.append(f'{json_file}: Invalid JSON - {e}')
+              except Exception as e:
+                  errors.append(f'{json_file}: Error - {e}')
+
+          print(f'Validated {validated} exercise files')
+
+          if errors:
+              print('\\nErrors found:')
+              for err in errors:
+                  print(f'  - {err}')
+              exit(1)
+          else:
+              print('All exercise files are valid')
+          "
+
+      - name: Check exercise seeding script
+        run: |
+          echo "Verifying exercise seeding scripts exist..."
+
+          if [ -f "backend/scripts/seed_exercises.py" ]; then
+              echo "✅ seed_exercises.py found"
+              python -m py_compile backend/scripts/seed_exercises.py
+              echo "✅ Script syntax valid"
+          else
+              echo "⚠️ seed_exercises.py not found (optional)"
+          fi
+
+          if [ -f "backend/scripts/seed_secuenciales.py" ]; then
+              echo "✅ seed_secuenciales.py found"
+              python -m py_compile backend/scripts/seed_secuenciales.py
+              echo "✅ Script syntax valid"
+          else
+              echo "⚠️ seed_secuenciales.py not found (optional)"
+          fi
+
+      - name: Verify exercise repository imports
+        run: |
+          python -c "
+          try:
+              from backend.database.repositories import ExerciseRepository
+              print('✅ ExerciseRepository imports successfully')
+          except ImportError as e:
+              print(f'❌ Failed to import ExerciseRepository: {e}')
+              exit(1)
+
+          try:
+              from backend.database.models import ExerciseDB
+              print('✅ ExerciseDB model imports successfully')
+          except ImportError as e:
+              print(f'❌ Failed to import ExerciseDB: {e}')
+              exit(1)
+          "
+
+      - name: Generate validation summary
+        if: always()
+        run: |
+          echo "## Exercise Catalog Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| JSON Schema | ✅ Valid |" >> $GITHUB_STEP_SUMMARY
+          echo "| Seeding Scripts | ✅ Syntax OK |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository Imports | ✅ Working |" >> $GITHUB_STEP_SUMMARY

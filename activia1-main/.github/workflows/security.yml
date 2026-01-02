@@ -1,0 +1,267 @@
+# ============================================================================
+# AI-Native MVP - Security Scanning Workflow (DISABLED)
+# ============================================================================
+# DISABLED Cortez49: This workflow is superseded by security-modular.yml
+# Both workflows were running simultaneously on the same schedule.
+# Use security-modular.yml instead - it removes redundant tools (pip-audit, Gitleaks)
+# and uses reusable workflows for better maintainability.
+#
+# To re-enable, uncomment the 'on:' section below
+# ============================================================================
+# Original triggers (now disabled):
+# - schedule: Every Monday at 9:00 AM UTC
+# - workflow_dispatch (manual)
+# - push to main when requirements.txt/package.json/Dockerfile changes
+# ============================================================================
+
+name: Security Scan (DISABLED)
+
+# DISABLED - Using security-modular.yml instead
+# Uncomment below to re-enable this workflow
+# on:
+#   schedule:
+#     - cron: '0 9 * * 1'
+#   workflow_dispatch:
+#   push:
+#     branches: [main]
+#     paths:
+#       - 'requirements.txt'
+#       - 'frontEnd/package.json'
+#       - 'Dockerfile'
+#       - 'frontEnd/Dockerfile'
+
+# This workflow will not run without 'on:' trigger
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_enable:
+        description: 'Type ENABLE to run this deprecated workflow'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ============================================================================
+  # Dependency Vulnerability Scan
+  # ============================================================================
+  dependency-scan:
+    name: 📦 Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-audit
+        run: pip install pip-audit safety
+
+      - name: Audit Python dependencies (pip-audit)
+        continue-on-error: true
+        run: |
+          pip-audit -r requirements.txt --format json --output pip-audit-results.json || true
+          pip-audit -r requirements.txt
+
+      - name: Check with Safety
+        continue-on-error: true
+        run: safety check -r requirements.txt --full-report
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Audit npm dependencies
+        working-directory: frontEnd
+        continue-on-error: true
+        run: npm audit --json > npm-audit-results.json || true
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-results
+          path: |
+            pip-audit-results.json
+            frontEnd/npm-audit-results.json
+
+  # ============================================================================
+  # Static Application Security Testing (SAST)
+  # ============================================================================
+  sast:
+    name: 🔍 SAST Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit SAST scan
+        run: |
+          bandit -r backend/ \
+            -f sarif \
+            -o bandit-results.sarif \
+            --severity-level medium \
+            || true
+
+      - name: Upload Bandit results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python, javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+  # ============================================================================
+  # Container Security Scan
+  # ============================================================================
+  container-scan:
+    name: 🐳 Container Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Backend image for scanning
+        run: docker build -t ai-native-backend:scan .
+
+      - name: Build Frontend image for scanning
+        run: docker build -t ai-native-frontend:scan ./frontEnd
+
+      - name: Run Trivy on Backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ai-native-backend:scan'
+          format: 'sarif'
+          output: 'trivy-backend.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          vuln-type: 'os,library'
+
+      - name: Run Trivy on Frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ai-native-frontend:scan'
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          vuln-type: 'os,library'
+
+      - name: Upload Backend Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-backend.sarif'
+          category: trivy-backend
+
+      - name: Upload Frontend Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-frontend.sarif'
+          category: trivy-frontend
+
+      - name: Run Dockle (Dockerfile best practices)
+        uses: erzz/dockle-action@v1
+        with:
+          image: ai-native-backend:scan
+          failure-threshold: high
+          exit-code: 0
+
+  # ============================================================================
+  # Secret Detection
+  # ============================================================================
+  secret-scan:
+    name: 🔐 Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ""
+          head: HEAD
+          extra_args: --only-verified
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Kubernetes Security Scan
+  # ============================================================================
+  kubernetes-scan:
+    name: ☸️ Kubernetes Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Kubesec on manifests
+        uses: controlplaneio/kubesec-action@v0.0.2
+        with:
+          input: devops/kubernetes/staging/06-backend.yaml
+
+      - name: Run Trivy on Kubernetes manifests
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'devops/kubernetes/'
+          format: 'sarif'
+          output: 'trivy-k8s.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload K8s scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-k8s.sarif'
+          category: kubernetes
+
+  # ============================================================================
+  # Infrastructure as Code Scan
+  # ============================================================================
+  iac-scan:
+    name: 🏗️ IaC Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: dockerfile,kubernetes,github_actions
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov

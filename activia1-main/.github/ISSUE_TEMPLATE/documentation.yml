@@ -1,0 +1,86 @@
+# ============================================================================
+# Documentation Issue Template
+# ============================================================================
+# Cortez45: For documentation improvements and additions
+# ============================================================================
+
+name: Documentation
+description: Suggest documentation improvements or report documentation issues
+title: "[Docs]: "
+labels: ["documentation", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation! Please describe what needs to be updated.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Documentation Type
+      description: What type of documentation change is this?
+      options:
+        - Missing documentation
+        - Outdated documentation
+        - Incorrect documentation
+        - Unclear documentation
+        - Translation needed
+        - API documentation
+        - Code comments
+        - README improvement
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Where is the documentation that needs to be changed?
+      placeholder: |
+        - File: docs/api/README_API.md
+        - Section: Authentication
+        - URL: https://...
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current Documentation
+      description: What does the current documentation say (if applicable)?
+      placeholder: Copy the current text or describe what's there...
+
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested Change
+      description: What should the documentation say instead?
+      placeholder: Describe or write the improved documentation...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Target Audience
+      description: Who is this documentation for?
+      options:
+        - Students (end users)
+        - Teachers (educators)
+        - Developers (contributors)
+        - Administrators (DevOps)
+        - All users
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched for existing documentation issues
+          required: true
+        - label: I am willing to submit a PR to fix this
+          required: false

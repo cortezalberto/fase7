@@ -1,0 +1,44 @@
+# ============================================================================
+# AI-Native MVP - LLM Provider Configuration
+# ============================================================================
+# Cortez44: Extracted from docker-compose.yml for modular LLM configuration
+#
+# Usage:
+#   docker-compose -f docker-compose.base.yml -f docker-compose.llm.yml up -d
+# ============================================================================
+
+services:
+  api:
+    environment:
+      # LLM Provider Selection
+      - LLM_PROVIDER=${LLM_PROVIDER:-mistral}
+
+      # Mistral API (Primary)
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - MISTRAL_MODEL=${MISTRAL_MODEL:-mistral-small-latest}
+      - MISTRAL_TEMPERATURE=${MISTRAL_TEMPERATURE:-0.7}
+      - MISTRAL_TIMEOUT=${MISTRAL_TIMEOUT:-60}
+      - MISTRAL_MAX_RETRIES=${MISTRAL_MAX_RETRIES:-3}
+
+      # Gemini API (Backup)
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GEMINI_TEMPERATURE=${GEMINI_TEMPERATURE:-0.7}
+      - GEMINI_TIMEOUT=${GEMINI_TIMEOUT:-30}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-3}
+
+      # OpenAI API (Optional)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.7}
+
+      # Ollama (Local LLM)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-mistral:7b-instruct}
+      - OLLAMA_TEMPERATURE=${OLLAMA_TEMPERATURE:-0.7}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-180}
+
+      # Cache settings
+      - LLM_CACHE_ENABLED=true
+      - LLM_CACHE_TTL=3600
+      - LLM_CACHE_MAX_ENTRIES=1000

@@ -1,0 +1,150 @@
+# ============================================================================
+# AI-Native MVP - Frontend Deployment
+# ============================================================================
+# React + Nginx con SecurityContext y configuración parametrizable
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-native-frontend
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-frontend
+    tier: frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: ai-native-frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-native-frontend
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-frontend
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-native-frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: ai-native-frontend
+        tier: frontend
+    spec:
+      # Security Context - correr como non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101  # nginx user
+        runAsGroup: 101
+        fsGroup: 101
+
+      containers:
+      - name: frontend
+        # IMPORTANT: Set FRONTEND_IMAGE environment variable before deploying
+        # Examples:
+        #   export FRONTEND_IMAGE=ghcr.io/your-org/ai-native-frontend:v1.0.0
+        #   export FRONTEND_IMAGE=your-registry.azurecr.io/ai-native-frontend:latest
+        #
+        # Or use kustomize/helm to override this value
+        image: ${FRONTEND_IMAGE:-ghcr.io/ai-native-mvp/ai-native-frontend:latest}
+        # Use IfNotPresent for better resilience when registry is unreachable
+        # Use Always only if you need to pull on every restart
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+
+        env:
+        - name: VITE_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-native-config
+              key: API_BASE_URL
+              optional: true
+
+        # Security context del contenedor
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+
+        # OPT-016: Resource limits ratio adjusted to 2:1 for better scheduling
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 200m    # 2:1 ratio (was 5:1)
+            memory: 512Mi
+
+        volumeMounts:
+        # Nginx necesita escribir en estos directorios
+        - name: nginx-cache
+          mountPath: /var/cache/nginx
+        - name: nginx-run
+          mountPath: /var/run
+        - name: tmp
+          mountPath: /tmp
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 2
+
+      volumes:
+      - name: nginx-cache
+        emptyDir: {}
+      - name: nginx-run
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+
+      # Distribuir pods en diferentes nodos
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ai-native-frontend
+              topologyKey: kubernetes.io/hostname

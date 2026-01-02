@@ -1,0 +1,74 @@
+# ============================================================================
+# Reusable Frontend Test Workflow
+# ============================================================================
+# Cortez45: Extracted from ci.yml for modularity
+#
+# Usage:
+#   jobs:
+#     test:
+#       uses: ./.github/workflows/reusable-test-frontend.yml
+#       with:
+#         node-version: '20'
+#         working-directory: 'frontEnd/'
+# ============================================================================
+
+name: Reusable Frontend Tests
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        default: '20'
+        type: string
+      working-directory:
+        description: 'Path to frontend code'
+        required: false
+        default: 'frontEnd/'
+        type: string
+      run-coverage:
+        description: 'Run tests with coverage'
+        required: false
+        default: true
+        type: boolean
+
+# FIX Cortez49: Added explicit permissions and timeouts
+permissions:
+  contents: read
+
+jobs:
+  test-frontend:
+    name: 🧪 Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.working-directory }}package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working-directory }}
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          if [ "${{ inputs.run-coverage }}" = "true" ]; then
+            npm test -- --coverage --passWithNoTests
+          else
+            npm test -- --passWithNoTests
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: ${{ inputs.run-coverage && always() }}
+        with:
+          name: frontend-coverage
+          path: ${{ inputs.working-directory }}coverage/

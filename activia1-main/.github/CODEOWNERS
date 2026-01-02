@@ -1,0 +1,86 @@
+# ============================================================================
+# CODEOWNERS - Automatic PR Review Assignment
+# ============================================================================
+# Cortez45: Added for automatic reviewer assignment
+# FIX Cortez49: Updated with instructions for configuring team handles
+#
+# These owners will be requested for review when someone opens a pull request
+# that modifies code that they own.
+#
+# Order matters: later patterns override earlier ones.
+#
+# SETUP INSTRUCTIONS:
+# 1. Create teams in GitHub: Settings → Teams → New team
+#    - @your-org/backend-team
+#    - @your-org/frontend-team
+#    - @your-org/devops-team
+#    - etc.
+# 2. Or replace team handles with individual GitHub usernames:
+#    - @username1 @username2
+# 3. The handles below are placeholders - update before enabling CODEOWNERS
+# ============================================================================
+
+# Default owners for everything in the repo
+# TODO: Replace @project-lead with actual GitHub username or team
+*                                   @project-lead
+
+# ============================================================================
+# Backend (Python/FastAPI)
+# ============================================================================
+/backend/                           @backend-team
+/backend/agents/                    @ai-team @backend-team
+/backend/core/                      @backend-lead @backend-team
+/backend/database/                  @backend-team @dba-team
+/backend/llm/                       @ai-team
+/backend/api/                       @backend-team
+/requirements.txt                   @backend-team
+
+# ============================================================================
+# Frontend (React/TypeScript)
+# ============================================================================
+/frontEnd/                          @frontend-team
+/frontEnd/src/features/             @frontend-lead @frontend-team
+/frontEnd/src/components/           @frontend-team
+/frontEnd/src/services/             @frontend-team @backend-team
+/frontEnd/src/types/                @frontend-team @backend-team
+/frontEnd/package.json              @frontend-team
+
+# ============================================================================
+# DevOps & Infrastructure
+# ============================================================================
+/devops/                            @devops-team
+/devops/kubernetes/                 @devops-team @sre-team
+/devops/monitoring/                 @devops-team @sre-team
+/devops/security-audit/             @security-team @devops-team
+/infra/                             @devops-team
+/Dockerfile                         @devops-team
+/docker-compose*.yml                @devops-team
+
+# ============================================================================
+# CI/CD & GitHub Configuration
+# ============================================================================
+/.github/                           @devops-team @project-lead
+/.github/workflows/                 @devops-team
+/.github/ISSUE_TEMPLATE/            @project-lead
+/.github/CODEOWNERS                 @project-lead
+
+# ============================================================================
+# Documentation
+# ============================================================================
+/docs/                              @docs-team @project-lead
+*.md                                @docs-team
+/CLAUDE.md                          @project-lead
+
+# ============================================================================
+# Tests
+# ============================================================================
+/tests/                             @qa-team @backend-team
+/frontEnd/src/**/*.test.ts          @qa-team @frontend-team
+/frontEnd/src/**/*.test.tsx         @qa-team @frontend-team
+
+# ============================================================================
+# Security-Sensitive Files
+# ============================================================================
+/.env*                              @security-team @project-lead
+/backend/api/auth*.py               @security-team @backend-team
+/backend/core/security*.py          @security-team @backend-team

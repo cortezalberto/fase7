@@ -1,0 +1,176 @@
+# ============================================================================
+# Alertmanager Configuration - AI-Native MVP
+# ============================================================================
+# Configure alert routing, grouping, and notifications
+# ============================================================================
+
+global:
+  # The smarthost and SMTP sender used for mail notifications.
+  smtp_smarthost: '${SMTP_HOST:-smtp.gmail.com}:${SMTP_PORT:-587}'
+  smtp_from: '${SMTP_FROM:-alertmanager@ai-native.example.com}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # Slack API URL for notifications
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+  # The default time to wait before sending a notification again
+  resolve_timeout: 5m
+
+# ============================================================================
+# Route Tree
+# ============================================================================
+route:
+  # Default receiver
+  receiver: 'default-receiver'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'severity', 'service']
+
+  # How long to wait before sending a notification about new alerts
+  group_wait: 30s
+
+  # How long to wait before sending an updated notification
+  group_interval: 5m
+
+  # How long to wait before resending a notification
+  repeat_interval: 4h
+
+  # Child routes for specific severity levels
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 1m
+      repeat_interval: 4h
+
+    # Database alerts
+    - match:
+        service: postgresql
+      receiver: 'database-alerts'
+      group_wait: 30s
+
+    # LLM/Ollama alerts
+    - match_re:
+        alertname: '^(Ollama|LLM).*'
+      receiver: 'llm-alerts'
+      group_wait: 1m
+
+# ============================================================================
+# Inhibition Rules
+# ============================================================================
+# Prevent lower-priority alerts when higher-priority alerts are firing
+inhibit_rules:
+  # If critical is firing, suppress warning
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+  # If API is down, suppress other API alerts
+  - source_match:
+      alertname: 'APIEndpointDown'
+    target_match_re:
+      alertname: '^(HighAPILatency|HighErrorRate)$'
+    equal: ['service']
+
+# ============================================================================
+# Receivers
+# ============================================================================
+receivers:
+  # Default receiver - email only
+  - name: 'default-receiver'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@ai-native.example.com}'
+        send_resolved: true
+        headers:
+          subject: '[AI-Native MVP] {{ .GroupLabels.alertname }} - {{ .Status | toUpper }}'
+
+  # Critical alerts - email + slack
+  - name: 'critical-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@ai-native.example.com}'
+        send_resolved: true
+        headers:
+          subject: '🚨 [CRITICAL] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>🚨 Critical Alert: {{ .GroupLabels.alertname }}</h2>
+          <p><strong>Status:</strong> {{ .Status | toUpper }}</p>
+          <p><strong>Severity:</strong> {{ .GroupLabels.severity }}</p>
+          <h3>Alerts:</h3>
+          {{ range .Alerts }}
+          <div style="border: 1px solid #ccc; padding: 10px; margin: 5px 0;">
+            <p><strong>{{ .Annotations.summary }}</strong></p>
+            <p>{{ .Annotations.description }}</p>
+            <p><small>Started: {{ .StartsAt }}</small></p>
+          </div>
+          {{ end }}
+
+    slack_configs:
+      - channel: '#alerts-critical'
+        send_resolved: true
+        title: '🚨 {{ .GroupLabels.alertname }}'
+        text: |
+          *Status:* {{ .Status | toUpper }}
+          *Severity:* {{ .GroupLabels.severity }}
+          {{ range .Alerts }}
+          • {{ .Annotations.summary }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  # Warning alerts - slack only
+  - name: 'warning-alerts'
+    slack_configs:
+      - channel: '#alerts-warning'
+        send_resolved: true
+        title: '⚠️ {{ .GroupLabels.alertname }}'
+        text: |
+          *Status:* {{ .Status | toUpper }}
+          {{ range .Alerts }}
+          • {{ .Annotations.summary }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+
+  # Database alerts
+  - name: 'database-alerts'
+    email_configs:
+      - to: '${DBA_EMAIL:-dba@ai-native.example.com}'
+        send_resolved: true
+        headers:
+          subject: '[DB Alert] {{ .GroupLabels.alertname }}'
+
+    slack_configs:
+      - channel: '#alerts-database'
+        send_resolved: true
+        title: '🗄️ Database: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # LLM/AI alerts
+  - name: 'llm-alerts'
+    slack_configs:
+      - channel: '#alerts-llm'
+        send_resolved: true
+        title: '🤖 LLM: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+# ============================================================================
+# Templates (optional - for custom notification formatting)
+# ============================================================================
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

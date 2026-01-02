@@ -1,0 +1,151 @@
+# ============================================================================
+# Dependabot Configuration
+# ============================================================================
+# Cortez45: Automated dependency updates configuration
+#
+# Dependabot will automatically create pull requests to update dependencies
+# across the entire stack (Python, npm, Docker, GitHub Actions).
+# ============================================================================
+
+version: 2
+updates:
+  # ==========================================================================
+  # Python Dependencies (Backend)
+  # ==========================================================================
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group minor/patch updates together
+      python-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Ignore major updates for critical packages (manual review required)
+      - dependency-name: "sqlalchemy"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "fastapi"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pydantic"
+        update-types: ["version-update:semver-major"]
+
+  # ==========================================================================
+  # NPM Dependencies (Frontend)
+  # ==========================================================================
+  - package-ecosystem: "npm"
+    directory: "/frontEnd"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "frontend"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group React ecosystem updates
+      react:
+        patterns:
+          - "react"
+          - "react-*"
+          - "@types/react*"
+      # Group TypeScript and build tools
+      build-tools:
+        patterns:
+          - "typescript"
+          - "vite"
+          - "vitest"
+          - "@vitejs/*"
+          - "eslint*"
+          - "@eslint/*"
+      # Group all other minor/patch updates
+      npm-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "react*"
+          - "typescript"
+          - "vite*"
+          - "eslint*"
+    ignore:
+      # Ignore major React updates (manual migration required)
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+
+  # ==========================================================================
+  # Docker Base Images
+  # ==========================================================================
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: "docker"
+    directory: "/frontEnd"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "frontend"
+      - "automated"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # ==========================================================================
+  # GitHub Actions
+  # ==========================================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+      - "ci/cd"
+      - "automated"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      # Group all GitHub Actions updates
+      github-actions:
+        patterns:
+          - "*"

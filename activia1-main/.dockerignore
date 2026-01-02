@@ -1,0 +1,153 @@
+# ============================================================================
+# .dockerignore - Archivos excluidos del contexto de build de Docker
+# ============================================================================
+# Reduce tamaño de imagen y acelera builds al excluir archivos innecesarios
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+ai_native.db
+ai_native_mvp.db
+
+# Environment files (contienen secrets)
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Documentation (no necesaria en runtime)
+docs/
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker files (no necesarios dentro de la imagen)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (si hay frontend)
+node_modules/
+frontEnd/node_modules/
+frontEnd/dist/
+frontEnd/.next/
+
+# Test data
+test_*.py
+tests/
+test_output/
+export_output/
+
+# Scripts de desarrollo (no necesarios en producción)
+scripts/
+examples/
+
+# Backups
+*.bak
+*.backup
+*_backup.*
+
+# Kubernetes YAML (deployment files, no código)
+kubernetes/
+*.yaml
+*.yml
+!docker-compose.yml
+
+# Documentación extensa
+ANALISIS_*.md
+AUDITORIA_*.md
+CORRECCIONES_*.md
+MEJORAS_*.md
+RESUMEN_*.md
+SPRINT_*.md
+USER_STORIES*.md
+CERTIFICACION_*.md
+GUIA_*.md
+cortez
+cortez1
+cortez2
+cortez3
+cortez4
+cortez5
+cortez6
+cortez7
+cortez8
+cortez10
+cortez11
+cortez12
+cortez14
+cortez16
+cortez19
+cortez20
+cortez21
+cortez22
+cortez24
+cortez25
+cortez27
+DEPLOY_*.md
+QUICKSTART_*.md
+
+# Datos de desarrollo
+postgres-data/
+redis-data/
+ollama-data/
+prometheus-data/
+grafana-data/
+
+# IMPORTANTE: NO excluir ejercicios (necesarios en runtime)
+!backend/data/
+!backend/data/exercises/
+!backend/data/exercises/*.json
+
+# Scripts de verificación
+scripts/verify-deploy.sh

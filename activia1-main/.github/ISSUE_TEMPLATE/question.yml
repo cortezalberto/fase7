@@ -1,0 +1,78 @@
+# ============================================================================
+# Question Issue Template
+# ============================================================================
+# Cortez45: For questions about the project
+# ============================================================================
+
+name: Question
+description: Ask a question about the project
+title: "[Question]: "
+labels: ["question", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're here to help! Please provide as much context as possible.
+
+        **Note**: For general discussions, consider using [GitHub Discussions](https://github.com/your-org/ai-native-mvp/discussions) instead.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Question Area
+      description: What area does your question relate to?
+      options:
+        - Installation / Setup
+        - Configuration
+        - Usage (Students)
+        - Usage (Teachers)
+        - API / Integration
+        - AI Agents
+        - LLM Integration
+        - Docker / Kubernetes
+        - Contributing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Please be as specific as possible...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context that might help us answer your question.
+      placeholder: |
+        - What are you trying to achieve?
+        - What have you already tried?
+        - What documentation have you consulted?
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (if relevant)
+      description: Your environment details if the question is technical.
+      placeholder: |
+        - OS: Windows 11 / Ubuntu 22.04 / macOS 14
+        - Docker: Yes/No
+        - Python version: 3.11
+        - Node version: 20
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have consulted the documentation
+          required: true

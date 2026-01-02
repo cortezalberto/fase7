@@ -1,0 +1,103 @@
+# ============================================================================
+# AI-Native MVP - ConfigMap
+# ============================================================================
+# Configuration for staging environment
+# NOTE: LLM_PROVIDER defaults to "gemini" for staging. Use "mock" for testing.
+# ============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-native-config
+  namespace: ai-native-staging
+  labels:
+    app: ai-native
+    environment: staging
+data:
+  # =========================================================================
+  # Environment
+  # =========================================================================
+  ENVIRONMENT: "staging"
+  DEBUG: "false"
+
+  # =========================================================================
+  # API Server
+  # =========================================================================
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_BASE_URL: "https://api-staging.ai-native.example.com/api/v1"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+
+  # =========================================================================
+  # Database Connection Pool (P1.3)
+  # =========================================================================
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "40"
+  DB_POOL_TIMEOUT: "30"
+  DB_POOL_RECYCLE: "3600"
+
+  # =========================================================================
+  # Redis Cache (P1.2)
+  # NOTE: REDIS_URL is constructed in deployment with password from secret
+  # =========================================================================
+  LLM_CACHE_ENABLED: "true"
+  LLM_CACHE_BACKEND: "redis"
+  LLM_CACHE_TTL: "3600"
+  LLM_CACHE_MAX_ENTRIES: "1000"
+
+  # =========================================================================
+  # LLM Provider
+  # =========================================================================
+  # Options: "gemini", "openai", "ollama", "mock"
+  # - gemini: Google Gemini API (recommended for staging/production)
+  # - openai: OpenAI GPT API
+  # - ollama: Local Ollama server (for development)
+  # - mock: Mock responses (for testing without LLM costs)
+  LLM_PROVIDER: "gemini"
+
+  # OpenAI settings (if LLM_PROVIDER=openai)
+  OPENAI_MODEL: "gpt-4"
+  OPENAI_TEMPERATURE: "0.7"
+
+  # Gemini settings (if LLM_PROVIDER=gemini)
+  GEMINI_MODEL: "gemini-1.5-flash"
+  GEMINI_TEMPERATURE: "0.7"
+
+  # Ollama settings (if LLM_PROVIDER=ollama)
+  OLLAMA_BASE_URL: "http://ollama:11434"
+  OLLAMA_MODEL: "phi3"
+
+  # =========================================================================
+  # CORS
+  # NOTE: Update this to your actual staging domain
+  # =========================================================================
+  ALLOWED_ORIGINS: "https://app-staging.ai-native.example.com"
+
+  # =========================================================================
+  # Rate Limiting
+  # =========================================================================
+  RATE_LIMIT_PER_MINUTE: "60"
+  RATE_LIMIT_PER_HOUR: "1000"
+
+  # =========================================================================
+  # JWT (P1.1)
+  # =========================================================================
+  JWT_ALGORITHM: "HS256"
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+  # =========================================================================
+  # Governance
+  # =========================================================================
+  MAX_AI_INVOLVEMENT: "0.8"
+  BLOCK_COMPLETE_SOLUTIONS: "true"
+  REQUIRE_TRACEABILITY: "true"
+
+  # =========================================================================
+  # Feature Flags
+  # =========================================================================
+  ENABLE_N4_TRACEABILITY: "true"
+  ENABLE_RISK_ANALYSIS: "true"
+  ENABLE_PROCESS_EVALUATION: "true"
+  ENABLE_GIT_INTEGRATION: "false"

@@ -1,0 +1,81 @@
+# ============================================================================
+# AI-Native MVP - Pod Disruption Budgets
+# ============================================================================
+# Ensure minimum availability during voluntary disruptions
+# (node drains, upgrades, etc.)
+# ============================================================================
+
+# ============================================================================
+# Backend PDB
+# ============================================================================
+# Ensure at least 2 backend pods are always available
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-native-backend-pdb
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-backend
+spec:
+  # Minimum pods that must be available
+  minAvailable: 2
+  # Or use maxUnavailable: 1 for "at most 1 pod can be down"
+  selector:
+    matchLabels:
+      app: ai-native-backend
+
+---
+# ============================================================================
+# Frontend PDB
+# ============================================================================
+# Ensure at least 1 frontend pod is always available
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-native-frontend-pdb
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ai-native-frontend
+
+---
+# ============================================================================
+# PostgreSQL PDB
+# ============================================================================
+# For StatefulSet with single replica, use maxUnavailable
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgresql-pdb
+  namespace: ai-native-staging
+  labels:
+    app: postgresql
+spec:
+  # Don't allow voluntary disruption of the single database pod
+  # This will block node drains until manually approved
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: postgresql
+
+---
+# ============================================================================
+# Redis PDB
+# ============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: ai-native-staging
+  labels:
+    app: redis
+spec:
+  # Don't allow voluntary disruption of Redis
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: redis

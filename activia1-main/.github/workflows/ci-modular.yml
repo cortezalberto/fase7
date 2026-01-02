@@ -1,0 +1,231 @@
+# ============================================================================
+# AI-Native MVP - Modular CI/CD Pipeline
+# ============================================================================
+# Cortez45: Refactored from ci.yml (415 lines) to use reusable workflows
+# Cortez59: Added database migrations and exercise validation stages
+# Cortez59+: Added LLM health, API contract, performance, and E2E training
+#
+# This modular version uses composable workflows for better maintainability.
+# Original ci.yml is preserved for backward compatibility.
+#
+# Benefits:
+# - Each stage is in a separate reusable workflow
+# - Easier to maintain and test individual stages
+# - Can be customized per environment
+# - Reduces duplication across projects
+#
+# Stages (14 total):
+# 1. Lint (Python + TypeScript)
+# 2. Backend Tests (pytest + PostgreSQL + Redis)
+# 3. Frontend Tests (Vitest)
+# 4. Security Scan (Bandit + Trivy + TruffleHog)
+# 5. Database Migrations
+# 6. Exercise Validation
+# 7. LLM Provider Health Check
+# 8. API Contract Testing
+# 9. Performance Regression Testing
+# 10. E2E Training Flow
+# 11-12. Build Backend/Frontend Images
+# 13-14. Deploy Staging/Production
+# ============================================================================
+
+name: CI/CD Pipeline (Modular)
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # Stage 1: Linting (uses reusable-lint.yml)
+  # ============================================================================
+  lint:
+    name: 🔍 Lint
+    uses: ./.github/workflows/reusable-lint.yml
+    with:
+      python-version: '3.11'
+      node-version: '20'
+      backend-path: 'backend/'
+      frontend-path: 'frontEnd/'
+
+  # ============================================================================
+  # Stage 2: Backend Tests (uses reusable-test-backend.yml)
+  # ============================================================================
+  test-backend:
+    name: 🧪 Backend Tests
+    needs: lint
+    uses: ./.github/workflows/reusable-test-backend.yml
+    with:
+      python-version: '3.11'
+      coverage-threshold: 70
+      postgres-version: '15-alpine'
+      redis-version: '7.2-alpine'
+
+  # ============================================================================
+  # Stage 3: Frontend Tests (uses reusable-test-frontend.yml)
+  # ============================================================================
+  test-frontend:
+    name: 🧪 Frontend Tests
+    needs: lint
+    uses: ./.github/workflows/reusable-test-frontend.yml
+    with:
+      node-version: '20'
+      working-directory: 'frontEnd/'
+      run-coverage: true
+
+  # ============================================================================
+  # Stage 4: Security Scan (uses reusable-security.yml)
+  # ============================================================================
+  security:
+    name: 🔒 Security
+    needs: lint
+    uses: ./.github/workflows/reusable-security.yml
+    with:
+      python-version: '3.11'
+      scan-path: 'backend/'
+      trivy-severity: 'CRITICAL,HIGH'
+      enable-trufflehog: true
+
+  # ============================================================================
+  # Stage 5: Database Migrations (Cortez59)
+  # ============================================================================
+  migrations:
+    name: 🗃️ Migrations
+    needs: lint
+    uses: ./.github/workflows/reusable-migrations.yml
+    with:
+      python-version: '3.11'
+      postgres-version: '15-alpine'
+
+  # ============================================================================
+  # Stage 6: Exercise Catalog Validation (Cortez59)
+  # ============================================================================
+  exercises:
+    name: 📚 Exercises
+    needs: lint
+    uses: ./.github/workflows/reusable-exercises.yml
+    with:
+      python-version: '3.11'
+
+  # ============================================================================
+  # Stage 7: LLM Provider Health Check (Cortez59+)
+  # ============================================================================
+  llm-health:
+    name: 🤖 LLM Health
+    needs: lint
+    uses: ./.github/workflows/reusable-llm-health.yml
+    with:
+      python-version: '3.11'
+      provider: 'mock'
+      timeout-seconds: 30
+
+  # ============================================================================
+  # Stage 8: API Contract Testing (Cortez59+)
+  # ============================================================================
+  api-contract:
+    name: 📋 API Contract
+    needs: [test-backend]
+    uses: ./.github/workflows/reusable-api-contract.yml
+    with:
+      python-version: '3.11'
+
+  # ============================================================================
+  # Stage 9: Performance Regression Testing (Cortez59+)
+  # Runs only on main/develop push (not on PRs to save resources)
+  # ============================================================================
+  performance:
+    name: ⚡ Performance
+    needs: [test-backend, test-frontend]
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/reusable-performance.yml
+    with:
+      python-version: '3.11'
+      concurrent-users: 10
+      test-duration: 30
+      baseline-p95-ms: 500
+
+  # ============================================================================
+  # Stage 10: E2E Training Flow (Cortez59+)
+  # ============================================================================
+  e2e-training:
+    name: 🎓 E2E Training
+    needs: [test-backend, migrations, exercises]
+    uses: ./.github/workflows/reusable-e2e-training.yml
+    with:
+      python-version: '3.11'
+      test-language: 'python'
+
+  # ============================================================================
+  # Stage 11: Build Backend Image
+  # ============================================================================
+  build-backend:
+    name: 🏗️ Build Backend
+    needs: [test-backend, test-frontend, security, migrations, exercises, llm-health, api-contract, e2e-training]
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      image-name: 'backend'
+      dockerfile: './Dockerfile'
+      context: '.'
+      push: ${{ github.event_name != 'pull_request' }}
+      scan-image: true
+
+  # ============================================================================
+  # Stage 12: Build Frontend Image
+  # ============================================================================
+  build-frontend:
+    name: 🏗️ Build Frontend
+    needs: [test-backend, test-frontend, security, migrations, exercises, llm-health, api-contract, e2e-training]
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      image-name: 'frontend'
+      dockerfile: './frontEnd/Dockerfile'
+      context: './frontEnd'
+      push: ${{ github.event_name != 'pull_request' }}
+      scan-image: true
+
+  # ============================================================================
+  # Stage 13: Deploy to Staging
+  # ============================================================================
+  deploy-staging:
+    name: 🚀 Deploy Staging
+    needs: [build-backend, build-frontend]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: 'staging'
+      environment-url: 'https://api-staging.ai-native.example.com'
+      namespace: 'ai-native-staging'
+      manifests-path: 'devops/kubernetes/staging/'
+      rollout-timeout: '300'
+    secrets:
+      kube-config: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+  # ============================================================================
+  # Stage 14: Deploy to Production
+  # ============================================================================
+  deploy-production:
+    name: 🚀 Deploy Production
+    needs: [build-backend, build-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: 'production'
+      environment-url: 'https://api.ai-native.example.com'
+      namespace: 'ai-native-production'
+      manifests-path: 'devops/kubernetes/production/'
+      rollout-timeout: '600'
+    secrets:
+      kube-config: ${{ secrets.KUBE_CONFIG_PRODUCTION }}

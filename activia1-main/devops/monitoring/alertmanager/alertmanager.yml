@@ -1,0 +1,171 @@
+# ============================================================================
+# AI-Native MVP - Alertmanager Configuration
+# ============================================================================
+# Author: Mag. Alberto Cortez
+# Date: 2025-12-30
+#
+# Configuration for alert routing, grouping, and notifications.
+#
+# Environment variables (set in docker-compose or .env):
+#   - SMTP_HOST, SMTP_PORT, SMTP_FROM, SMTP_USERNAME, SMTP_PASSWORD
+#   - SLACK_WEBHOOK_URL
+#   - ALERT_EMAIL, DBA_EMAIL
+# ============================================================================
+
+global:
+  # SMTP configuration for email alerts
+  smtp_smarthost: '${SMTP_HOST:-smtp.gmail.com}:${SMTP_PORT:-587}'
+  smtp_from: '${SMTP_FROM:-alertmanager@example.com}'
+  smtp_auth_username: '${SMTP_USERNAME:-}'
+  smtp_auth_password: '${SMTP_PASSWORD:-}'
+  smtp_require_tls: true
+
+  # Slack configuration (optional)
+  slack_api_url: '${SLACK_WEBHOOK_URL:-}'
+
+  # Default settings
+  resolve_timeout: 5m
+
+# ============================================================================
+# Alert Routing
+# ============================================================================
+route:
+  # Default receiver
+  receiver: 'default-receiver'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'service', 'severity']
+
+  # Wait before sending first notification for a new group
+  group_wait: 30s
+
+  # Wait before sending notifications about new alerts in a group
+  group_interval: 5m
+
+  # Wait before re-sending a notification for a resolved alert
+  repeat_interval: 4h
+
+  # Child routes for specific alert types
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    # Database alerts - send to DBA
+    - match:
+        service: postgresql
+      receiver: 'database-alerts'
+      continue: true
+
+    # Redis alerts
+    - match:
+        service: redis
+      receiver: 'cache-alerts'
+      continue: true
+
+    # API alerts
+    - match:
+        service: ai-native-api
+      receiver: 'api-alerts'
+      continue: true
+
+# ============================================================================
+# Inhibition Rules
+# ============================================================================
+inhibit_rules:
+  # If a critical alert fires, inhibit warning alerts for the same service
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['service', 'alertname']
+
+  # If API is down, inhibit dependent alerts
+  - source_match:
+      alertname: APIDown
+    target_match_re:
+      alertname: 'High.*'
+    equal: ['service']
+
+# ============================================================================
+# Receivers
+# ============================================================================
+receivers:
+  # Default receiver - email only
+  - name: 'default-receiver'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@example.com}'
+        send_resolved: true
+        headers:
+          subject: '[AI-Native Alert] {{ .GroupLabels.alertname }}'
+        html: |
+          {{ range .Alerts }}
+          <h3>{{ .Labels.alertname }}</h3>
+          <p><strong>Severity:</strong> {{ .Labels.severity }}</p>
+          <p><strong>Service:</strong> {{ .Labels.service }}</p>
+          <p><strong>Summary:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Started:</strong> {{ .StartsAt }}</p>
+          {{ end }}
+
+  # Critical alerts - email + slack
+  - name: 'critical-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@example.com}'
+        send_resolved: true
+        headers:
+          subject: '[CRITICAL] AI-Native: {{ .GroupLabels.alertname }}'
+    slack_configs:
+      - channel: '#alerts-critical'
+        send_resolved: true
+        title: '🚨 Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  # Database alerts
+  - name: 'database-alerts'
+    email_configs:
+      - to: '${DBA_EMAIL:-dba@example.com}'
+        send_resolved: true
+        headers:
+          subject: '[Database Alert] {{ .GroupLabels.alertname }}'
+
+  # Cache alerts
+  - name: 'cache-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@example.com}'
+        send_resolved: true
+        headers:
+          subject: '[Redis Alert] {{ .GroupLabels.alertname }}'
+
+  # API alerts
+  - name: 'api-alerts'
+    email_configs:
+      - to: '${ALERT_EMAIL:-admin@example.com}'
+        send_resolved: true
+        headers:
+          subject: '[API Alert] {{ .GroupLabels.alertname }}'
+    slack_configs:
+      - channel: '#alerts-api'
+        send_resolved: true
+        title: 'API Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Severity:* {{ .Labels.severity }}
+          *Summary:* {{ .Annotations.summary }}
+          {{ end }}
+
+# ============================================================================
+# Templates (Optional)
+# ============================================================================
+# templates:
+#   - '/etc/alertmanager/templates/*.tmpl'

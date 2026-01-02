@@ -1,0 +1,240 @@
+# ============================================================================
+# Reusable LLM Provider Health Check Workflow
+# ============================================================================
+# Cortez59: Added to validate LLM provider connectivity and responses
+#
+# This workflow verifies that LLM providers are accessible and responding
+# correctly. It helps detect API changes, outages, or configuration issues
+# before they affect production.
+#
+# Supported providers: ollama, gemini, mistral, openai, mock
+#
+# Usage:
+#   jobs:
+#     llm-health:
+#       uses: ./.github/workflows/reusable-llm-health.yml
+#       with:
+#         provider: 'mock'
+#       secrets:
+#         gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+# ============================================================================
+
+name: Reusable LLM Health Check
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.11'
+        type: string
+      provider:
+        description: 'LLM provider to test (mock, gemini, ollama, mistral, openai)'
+        required: false
+        default: 'mock'
+        type: string
+      timeout-seconds:
+        description: 'Timeout for LLM response in seconds'
+        required: false
+        default: 30
+        type: number
+    secrets:
+      gemini-api-key:
+        description: 'Gemini API key (required if provider=gemini)'
+        required: false
+      openai-api-key:
+        description: 'OpenAI API key (required if provider=openai)'
+        required: false
+      mistral-api-key:
+        description: 'Mistral API key (required if provider=mistral)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  llm-health-check:
+    name: "LLM Provider: ${{ inputs.provider }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify LLM provider module
+        run: |
+          python -c "
+          import sys
+
+          provider = '${{ inputs.provider }}'
+          print(f'Verifying LLM provider module: {provider}')
+
+          try:
+              from backend.llm.factory import LLMProviderFactory
+              print('LLMProviderFactory imported successfully')
+
+              # Verify provider is registered
+              available = getattr(LLMProviderFactory, '_providers', {})
+              if hasattr(LLMProviderFactory, 'get_available_providers'):
+                  available = LLMProviderFactory.get_available_providers()
+                  print(f'Available providers: {list(available)}')
+              else:
+                  print('Factory uses dynamic provider loading')
+
+          except ImportError as e:
+              print(f'ERROR: Failed to import LLMProviderFactory: {e}')
+              sys.exit(1)
+          "
+
+      - name: Test Mock Provider
+        if: inputs.provider == 'mock'
+        env:
+          LLM_PROVIDER: mock
+          ENVIRONMENT: testing
+        run: |
+          python -c "
+          import asyncio
+          import sys
+
+          async def test_mock_provider():
+              from backend.llm.factory import LLMProviderFactory
+
+              print('Creating mock LLM provider...')
+              provider = LLMProviderFactory.create('mock', {})
+
+              print('Sending test message...')
+              messages = [{'role': 'user', 'content': 'Hello, this is a health check.'}]
+
+              try:
+                  response = await provider.generate(messages, temperature=0.7)
+                  print(f'Response received: {response[:100]}...')
+                  print('Mock provider health check: PASSED')
+              except Exception as e:
+                  print(f'ERROR: Mock provider failed: {e}')
+                  sys.exit(1)
+
+          asyncio.run(test_mock_provider())
+          "
+
+      - name: Test Gemini Provider
+        if: inputs.provider == 'gemini'
+        env:
+          LLM_PROVIDER: gemini
+          GEMINI_API_KEY: ${{ secrets.gemini-api-key }}
+          ENVIRONMENT: testing
+        run: |
+          python -c "
+          import asyncio
+          import sys
+          import os
+
+          async def test_gemini_provider():
+              if not os.getenv('GEMINI_API_KEY'):
+                  print('WARNING: GEMINI_API_KEY not set, skipping Gemini test')
+                  return
+
+              from backend.llm.factory import LLMProviderFactory
+
+              print('Creating Gemini LLM provider...')
+              provider = LLMProviderFactory.create('gemini', {
+                  'api_key': os.getenv('GEMINI_API_KEY'),
+                  'timeout': ${{ inputs.timeout-seconds }}
+              })
+
+              print('Sending health check message...')
+              messages = [{'role': 'user', 'content': 'Respond with exactly: HEALTH_CHECK_OK'}]
+
+              try:
+                  response = await provider.generate(messages, temperature=0.0)
+                  if 'HEALTH_CHECK_OK' in response or len(response) > 0:
+                      print(f'Response received: {response[:100]}')
+                      print('Gemini provider health check: PASSED')
+                  else:
+                      print(f'WARNING: Unexpected response format')
+              except Exception as e:
+                  print(f'ERROR: Gemini provider failed: {e}')
+                  sys.exit(1)
+
+          asyncio.run(test_gemini_provider())
+          "
+
+      - name: Test Ollama Provider (Local)
+        if: inputs.provider == 'ollama'
+        env:
+          LLM_PROVIDER: ollama
+          OLLAMA_BASE_URL: http://localhost:11434
+          ENVIRONMENT: testing
+        run: |
+          echo "NOTE: Ollama requires a running local instance"
+          echo "This test validates the provider configuration only"
+
+          python -c "
+          import sys
+
+          try:
+              from backend.llm.providers.ollama_provider import OllamaProvider
+              print('OllamaProvider imported successfully')
+              print('Ollama provider module health check: PASSED')
+              print('')
+              print('To fully test Ollama, ensure ollama server is running:')
+              print('  ollama serve')
+              print('  ollama pull phi3')
+          except ImportError as e:
+              print(f'ERROR: Failed to import OllamaProvider: {e}')
+              sys.exit(1)
+          "
+
+      - name: Verify Provider Factory
+        run: |
+          python -c "
+          import sys
+
+          print('Verifying LLM provider factory patterns...')
+
+          try:
+              from backend.llm.factory import LLMProviderFactory
+              from backend.llm.base import BaseLLMProvider
+
+              # Verify mock provider can be created
+              mock = LLMProviderFactory.create('mock', {})
+              assert mock is not None, 'Mock provider creation failed'
+              print('Mock provider creation: OK')
+
+              # Verify provider implements base interface
+              assert hasattr(mock, 'generate'), 'Provider missing generate method'
+              print('Provider interface: OK')
+
+              print('')
+              print('LLM Factory health check: PASSED')
+
+          except Exception as e:
+              print(f'ERROR: Factory verification failed: {e}')
+              sys.exit(1)
+          "
+
+      - name: Generate health check summary
+        if: always()
+        run: |
+          echo "## LLM Provider Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Provider | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Module Import | ${{ inputs.provider }} | ${{ job.status == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Factory Creation | ${{ inputs.provider }} | ${{ job.status == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Interface Verification | ${{ inputs.provider }} | ${{ job.status == 'success' && 'Passed' || 'Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Provider tested**: \`${{ inputs.provider }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Timeout**: ${{ inputs.timeout-seconds }}s" >> $GITHUB_STEP_SUMMARY

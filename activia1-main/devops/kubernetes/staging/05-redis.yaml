@@ -1,0 +1,138 @@
+# ============================================================================
+# AI-Native MVP - Redis Configuration
+# ============================================================================
+# StatefulSet con PersistentVolume, autenticación y SecurityContext
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-native-redis
+  namespace: ai-native-staging
+  labels:
+    app: redis
+    tier: cache
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
+  selector:
+    app: redis
+---
+# ============================================================================
+# Redis StatefulSet (con PersistentVolume para datos persistentes)
+# ============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: ai-native-staging
+  labels:
+    app: redis
+    tier: cache
+spec:
+  serviceName: ai-native-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        tier: cache
+    spec:
+      # Security Context - correr como non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+
+        # Comando con autenticación
+        command:
+        - sh
+        - -c
+        - |
+          redis-server \
+            --appendonly yes \
+            --appendfilename "appendonly.aof" \
+            --appendfsync everysec \
+            --maxmemory 512mb \
+            --maxmemory-policy allkeys-lru \
+            --requirepass "$REDIS_PASSWORD" \
+            --protected-mode yes \
+            --rename-command FLUSHALL "" \
+            --rename-command FLUSHDB "" \
+            --rename-command DEBUG ""
+
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: REDIS_PASSWORD
+
+        # Security context del contenedor
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+
+        # Use TCP probe to avoid exposing password in process list/logs
+        livenessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          tcpSocket:
+            port: redis
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+
+      volumes:
+      - name: tmp
+        emptyDir: {}
+
+  # PersistentVolumeClaim template - datos persistentes
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: standard
+      resources:
+        requests:
+          storage: 10Gi

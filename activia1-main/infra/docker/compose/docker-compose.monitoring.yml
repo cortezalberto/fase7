@@ -1,0 +1,88 @@
+# ============================================================================
+# AI-Native MVP - Monitoring Stack (Prometheus + Grafana)
+# ============================================================================
+# Cortez44: Extracted from docker-compose.yml for modularization
+#
+# Usage:
+#   docker-compose -f docker-compose.base.yml -f docker-compose.monitoring.yml up -d
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # Prometheus - Metrics Storage & Querying
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: ai-native-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../../../devops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../../devops/monitoring/alerts/prometheus-alerts.yml:/etc/prometheus/alerts/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.enable-lifecycle'
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    depends_on:
+      - api
+
+  # ==========================================================================
+  # Grafana - Visualization & Dashboards
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: ai-native-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../../devops/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - prometheus
+
+networks:
+  ai-native-network:
+    external: true
+    name: ai-native-network
+
+volumes:
+  prometheus_data:
+    name: ai-native-prometheus-data
+  grafana_data:
+    name: ai-native-grafana-data

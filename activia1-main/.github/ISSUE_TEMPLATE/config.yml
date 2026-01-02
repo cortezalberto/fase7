@@ -1,0 +1,18 @@
+# ============================================================================
+# Issue Template Configuration
+# ============================================================================
+# Cortez45: Configuration for issue templates
+# FIX Cortez49: Updated placeholder URLs to use actual repository paths
+# ============================================================================
+
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/activia1-main/docs
+    about: Check the documentation in the docs/ folder before opening an issue
+  - name: Project README
+    url: https://github.com/activia1-main/blob/main/README.md
+    about: Read the main README for quick start guide
+  # NOTE: Update these URLs after repository is published:
+  # - Replace 'activia1-main' with actual org/repo path
+  # - Enable Discussions in repository settings if needed

@@ -1,0 +1,317 @@
+# ============================================================================
+# AI-Native MVP - Backend Deployment
+# ============================================================================
+# FastAPI con SecurityContext, timeouts en init containers y REDIS_URL
+# ============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-native-backend
+  namespace: ai-native-staging
+---
+# RBAC - Minimal permissions for backend service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-native-backend-role
+  namespace: ai-native-staging
+rules:
+  # Only allow reading configmaps (for app configuration)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+    resourceNames: ["ai-native-config"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-native-backend-rolebinding
+  namespace: ai-native-staging
+subjects:
+  - kind: ServiceAccount
+    name: ai-native-backend
+    namespace: ai-native-staging
+roleRef:
+  kind: Role
+  name: ai-native-backend-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-native-backend
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-backend
+    tier: backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: ai-native-backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-native-backend
+  namespace: ai-native-staging
+  labels:
+    app: ai-native-backend
+    tier: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-native-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: ai-native-backend
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ai-native-backend
+
+      # Security Context - correr como non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      initContainers:
+      # Wait for PostgreSQL con timeout
+      - name: wait-for-db
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for PostgreSQL (timeout: 120s)..."
+          TIMEOUT=120
+          ELAPSED=0
+          until nc -z ai-native-postgresql 5432; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "ERROR: PostgreSQL not ready after ${TIMEOUT}s"
+              exit 1
+            fi
+            echo "PostgreSQL not ready, waiting... (${ELAPSED}s/${TIMEOUT}s)"
+            sleep 2
+            ELAPSED=$((ELAPSED + 2))
+          done
+          echo "PostgreSQL is ready!"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+
+      # Wait for Redis con timeout
+      - name: wait-for-redis
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Redis (timeout: 60s)..."
+          TIMEOUT=60
+          ELAPSED=0
+          until nc -z ai-native-redis 6379; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "ERROR: Redis not ready after ${TIMEOUT}s"
+              exit 1
+            fi
+            echo "Redis not ready, waiting... (${ELAPSED}s/${TIMEOUT}s)"
+            sleep 2
+            ELAPSED=$((ELAPSED + 2))
+          done
+          echo "Redis is ready!"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+
+      containers:
+      - name: backend
+        # IMPORTANT: Set BACKEND_IMAGE environment variable before deploying
+        # Examples:
+        #   export BACKEND_IMAGE=ghcr.io/your-org/ai-native-backend:v1.0.0
+        #   export BACKEND_IMAGE=your-registry.azurecr.io/ai-native-backend:latest
+        image: ${BACKEND_IMAGE:-ghcr.io/ai-native-mvp/ai-native-backend:latest}
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+
+        env:
+        # Secrets
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: DATABASE_URL
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: JWT_SECRET_KEY
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: SECRET_KEY
+              optional: true
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: REDIS_PASSWORD
+        # REDIS_URL se construye en la aplicación usando REDIS_PASSWORD
+        # Kubernetes no soporta $(VAR) en 'value', solo en 'command/args'
+        - name: REDIS_HOST
+          value: "ai-native-redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_DB
+          value: "0"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: OPENAI_API_KEY
+              optional: true
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: GEMINI_API_KEY
+              optional: true
+
+        envFrom:
+        - configMapRef:
+            name: ai-native-config
+
+        # Security context del contenedor
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+
+        # OPT-015: Resource limits ratio adjusted to 2:1 for better scheduling
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m   # 2:1 ratio (was 4:1)
+            memory: 2Gi  # 2:1 ratio (was 4:1)
+
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: tmp
+          mountPath: /tmp
+
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 2
+
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ai-native-backend
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-native-backend-hpa
+  namespace: ai-native-staging
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ai-native-backend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 3
+        periodSeconds: 60
+      selectPolicy: Max

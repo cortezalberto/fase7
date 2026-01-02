@@ -1,0 +1,277 @@
+# ============================================================================
+# AI-Native MVP - Modular Security Scanning Workflow
+# ============================================================================
+# Cortez45: Refactored from security.yml (247 lines)
+#
+# Changes from original:
+# - Removed redundant tools (pip-audit duplicates Safety, Gitleaks duplicates TruffleHog)
+# - Uses reusable workflow for common security scans
+# - Better organized into logical categories
+# - Added job summaries for visibility
+#
+# Original security.yml preserved for backward compatibility.
+# ============================================================================
+
+name: Security Scan (Modular)
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9:00 AM UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'requirements.txt'
+      - 'frontEnd/package.json'
+      - 'Dockerfile'
+      - 'frontEnd/Dockerfile'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ============================================================================
+  # Python Dependency Audit (Safety - comprehensive vulnerability DB)
+  # ============================================================================
+  python-dependencies:
+    name: 🐍 Python Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install audit tools
+        run: pip install safety
+
+      - name: Run Safety check
+        continue-on-error: true
+        run: |
+          echo "## 🐍 Python Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          safety check -r requirements.txt --full-report 2>&1 | tee safety-report.txt || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat safety-report.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Safety report
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: safety-report.txt
+
+  # ============================================================================
+  # Node.js Dependency Audit
+  # ============================================================================
+  node-dependencies:
+    name: 📦 Node Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Audit npm dependencies
+        working-directory: frontEnd
+        continue-on-error: true
+        run: |
+          echo "## 📦 Node.js Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npm audit --json > npm-audit.json || true
+          npm audit 2>&1 | tee npm-audit.txt || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          head -100 npm-audit.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: frontEnd/npm-audit.json
+
+  # ============================================================================
+  # Static Application Security Testing (SAST)
+  # ============================================================================
+  sast:
+    name: 🔍 SAST (Bandit + CodeQL)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit SAST scan
+        run: |
+          bandit -r backend/ \
+            -f sarif \
+            -o bandit-results.sarif \
+            --severity-level medium \
+            || true
+
+      - name: Upload Bandit results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python, javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ============================================================================
+  # Container Security Scan (Trivy only - comprehensive)
+  # ============================================================================
+  container-scan:
+    name: 🐳 Container Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Backend image
+        run: docker build -t ai-native-backend:scan .
+
+      - name: Build Frontend image
+        run: docker build -t ai-native-frontend:scan ./frontEnd
+
+      - name: Scan Backend with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ai-native-backend:scan'
+          format: 'sarif'
+          output: 'trivy-backend.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          vuln-type: 'os,library'
+
+      - name: Scan Frontend with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ai-native-frontend:scan'
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          vuln-type: 'os,library'
+
+      - name: Upload Backend results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-backend.sarif'
+          category: trivy-backend
+
+      - name: Upload Frontend results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-frontend.sarif'
+          category: trivy-frontend
+
+      - name: Dockerfile best practices (Dockle)
+        uses: erzz/dockle-action@v1
+        with:
+          image: ai-native-backend:scan
+          failure-threshold: high
+          exit-code: 0
+
+  # ============================================================================
+  # Secret Detection (TruffleHog - comprehensive, supports verified secrets)
+  # ============================================================================
+  secrets-scan:
+    name: 🔐 Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ""
+          head: HEAD
+          extra_args: --only-verified
+
+  # ============================================================================
+  # Infrastructure Security (Kubernetes + Terraform/IaC)
+  # ============================================================================
+  infrastructure-scan:
+    name: ☸️ Infrastructure Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan Kubernetes manifests with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'devops/kubernetes/'
+          format: 'sarif'
+          output: 'trivy-k8s.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload K8s scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-k8s.sarif'
+          category: kubernetes
+
+      - name: Run Checkov IaC scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: dockerfile,kubernetes,github_actions
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+  # ============================================================================
+  # Security Summary
+  # ============================================================================
+  summary:
+    name: 📊 Security Summary
+    needs: [python-dependencies, node-dependencies, sast, container-scan, secrets-scan, infrastructure-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Dependencies | ${{ needs.python-dependencies.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Node Dependencies | ${{ needs.node-dependencies.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST (Bandit + CodeQL) | ${{ needs.sast.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Security | ${{ needs.container-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Detection | ${{ needs.secrets-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Infrastructure | ${{ needs.infrastructure-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📅 Scan completed: $(date -u)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,121 @@
+# ============================================================================
+# Reusable Backend Test Workflow
+# ============================================================================
+# Cortez44: Extracted from ci.yml for reusability
+#
+# Usage:
+#   jobs:
+#     test:
+#       uses: ./.github/workflows/reusable-test-backend.yml
+#       with:
+#         python-version: '3.11'
+#         coverage-threshold: 70
+# ============================================================================
+
+name: Reusable Backend Tests
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.11'
+        type: string
+      coverage-threshold:
+        description: 'Minimum coverage percentage'
+        required: false
+        default: 70
+        type: number
+      postgres-version:
+        description: 'PostgreSQL version'
+        required: false
+        default: '15-alpine'
+        type: string
+      redis-version:
+        description: 'Redis version'
+        required: false
+        default: '7.2-alpine'
+        type: string
+
+# FIX Cortez49: Added explicit permissions and timeouts
+permissions:
+  contents: read
+
+jobs:
+  test-backend:
+    name: 🧪 Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:${{ inputs.postgres-version }}
+        env:
+          POSTGRES_DB: ai_native_test
+          POSTGRES_USER: ai_native
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:${{ inputs.redis-version }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run tests with coverage
+        env:
+          DATABASE_URL: postgresql://ai_native:test_password@localhost:5432/ai_native_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: test_secret_key_for_ci_only
+          SECRET_KEY: test_secret_key_for_ci_only
+          LLM_PROVIDER: mock
+          ENVIRONMENT: testing
+        run: |
+          pytest tests/ -v \
+            --cov=backend \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-fail-under=${{ inputs.coverage-threshold }} \
+            --junitxml=test-results.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results
+          path: |
+            test-results.xml
+            htmlcov/

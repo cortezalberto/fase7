@@ -1,0 +1,143 @@
+# ============================================================================
+# PR Labeler Configuration
+# ============================================================================
+# Cortez45: Defines rules for automatic PR labeling
+#
+# Labels are applied based on which files are changed in the PR
+# ============================================================================
+
+# ============================================================================
+# Component Labels
+# ============================================================================
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/**'
+          - 'requirements.txt'
+          - 'Dockerfile'
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'frontEnd/**'
+
+devops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'devops/**'
+          - 'infra/**'
+          - 'docker-compose*.yml'
+          - '.github/workflows/**'
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/database/**'
+          - 'devops/kubernetes/**/sql/**'
+          - '**/migrations/**'
+
+ai-agents:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/agents/**'
+          - 'backend/llm/**'
+
+# ============================================================================
+# Type Labels
+# ============================================================================
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tests/**'
+          - '**/*.test.ts'
+          - '**/*.test.tsx'
+          - '**/*.spec.ts'
+          - '**/*.spec.tsx'
+          - '**/test_*.py'
+          - '**/*_test.py'
+
+ci/cd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'Makefile'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'requirements.txt'
+          - 'frontEnd/package.json'
+          - 'frontEnd/package-lock.json'
+
+# ============================================================================
+# Security Labels
+# ============================================================================
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/api/auth*.py'
+          - 'backend/core/security*.py'
+          - 'devops/security-audit/**'
+          - '.github/workflows/security*.yml'
+          - 'SECURITY.md'
+
+# ============================================================================
+# Configuration Labels
+# ============================================================================
+
+configuration:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.yml'
+          - '**/*.yaml'
+          - '**/*.json'
+          - '**/*.toml'
+          - '**/*.ini'
+          - '**/*.env*'
+          - '**/config/**'
+
+# ============================================================================
+# Kubernetes Labels
+# ============================================================================
+
+kubernetes:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'devops/kubernetes/**'
+          - '**/*.yaml'
+          - '**/*deployment*'
+          - '**/*service*'
+
+# ============================================================================
+# Feature Areas
+# ============================================================================
+
+api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/api/**'
+          - 'backend/schemas/**'
+
+models:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backend/database/models/**'
+          - 'frontEnd/src/types/**'
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'frontEnd/src/components/**'
+          - 'frontEnd/src/features/**'
+          - 'frontEnd/src/pages/**'
+          - '**/*.css'
+          - '**/*.scss'

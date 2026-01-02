@@ -1,0 +1,99 @@
+# ============================================================================
+# Reusable Lint Workflow
+# ============================================================================
+# Cortez44: Extracted from ci.yml for reusability
+#
+# Usage in other workflows:
+#   jobs:
+#     lint:
+#       uses: ./.github/workflows/reusable-lint.yml
+#       with:
+#         python-version: '3.11'
+#         node-version: '20'
+# ============================================================================
+
+name: Reusable Lint
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        required: false
+        default: '3.11'
+        type: string
+      node-version:
+        description: 'Node.js version to use'
+        required: false
+        default: '20'
+        type: string
+      backend-path:
+        description: 'Path to backend code'
+        required: false
+        default: 'backend/'
+        type: string
+      frontend-path:
+        description: 'Path to frontend code'
+        required: false
+        default: 'frontEnd/'
+        type: string
+
+# FIX Cortez49: Added explicit permissions and timeouts
+permissions:
+  contents: read
+
+jobs:
+  lint-python:
+    name: 🐍 Python Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install Python linters
+        run: |
+          pip install --upgrade pip
+          pip install black flake8 pylint isort mypy
+
+      - name: Check Python formatting (Black)
+        run: black --check --diff ${{ inputs.backend-path }}
+
+      - name: Check import sorting (isort)
+        run: isort --check-only --diff ${{ inputs.backend-path }}
+
+      - name: Lint Python (flake8)
+        run: flake8 ${{ inputs.backend-path }} --max-line-length=120 --ignore=E501,W503
+
+  lint-frontend:
+    name: 🌐 Frontend Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.frontend-path }}package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ${{ inputs.frontend-path }}
+        run: npm ci
+
+      - name: Lint frontend (ESLint)
+        working-directory: ${{ inputs.frontend-path }}
+        run: npm run lint
+
+      - name: Type check frontend (TypeScript)
+        working-directory: ${{ inputs.frontend-path }}
+        run: npm run type-check

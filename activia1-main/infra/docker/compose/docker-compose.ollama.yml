@@ -1,0 +1,87 @@
+# ============================================================================
+# AI-Native MVP - Ollama Local LLM Service
+# ============================================================================
+# Cortez44: Extracted from docker-compose.yml for modularization
+#
+# Usage:
+#   docker-compose -f docker-compose.base.yml -f docker-compose.ollama.yml up -d
+#
+# Requirements:
+#   - NVIDIA GPU with Docker NVIDIA runtime
+#   - nvidia-container-toolkit installed
+# ============================================================================
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-native-ollama
+    runtime: nvidia
+    ports:
+      - "11434:11434"
+    environment:
+      # Ollama Server
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_SERVER_KEEP_ALIVE:-24h}
+
+      # NVIDIA GPU Support
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+      # GPU Memory Management
+      - OLLAMA_GPU_MEMORY_FRACTION=0.85
+      - OLLAMA_MAX_LOADED_MODELS=1
+
+      # Performance Tuning
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_QUEUE=4
+      - OLLAMA_NUM_CTX=4096
+      - OLLAMA_NUM_THREAD=6
+      - OLLAMA_DEBUG=1
+
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - ai-native-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+          cpus: '6.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200m"
+        max-file: "5"
+
+  # Update API to depend on Ollama
+  api:
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_PROVIDER=ollama
+
+networks:
+  ai-native-network:
+    external: true
+    name: ai-native-network
+
+volumes:
+  ollama_data:
+    name: ai-native-ollama-data
