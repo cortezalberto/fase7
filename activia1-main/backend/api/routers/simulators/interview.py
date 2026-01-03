@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import logging
 
-from ...deps import get_db
+from ...deps import get_db, get_current_user
 from ...schemas.common import APIResponse
 from ...schemas.simulators import (
     InterviewStartRequest,
@@ -47,6 +47,7 @@ router = APIRouter(tags=["Interview Simulator (IT-IA)"])
 async def start_interview(
     request: InterviewStartRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[InterviewResponse]:
     """
     Inicia una sesión de entrevista técnica simulada (SPRINT 6).
@@ -143,6 +144,7 @@ async def start_interview(
 async def submit_interview_response(
     request: InterviewResponseRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[InterviewResponse]:
     """
     Procesa la respuesta del estudiante y genera la siguiente pregunta (SPRINT 6).
@@ -239,6 +241,7 @@ async def submit_interview_response(
 async def complete_interview(
     request: InterviewCompleteRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[InterviewResponse]:
     """
     Completa la entrevista técnica y genera evaluación final (SPRINT 6).
@@ -328,6 +331,7 @@ async def complete_interview(
 async def get_interview(
     interview_id: str,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[InterviewResponse]:
     """Obtiene detalles completos de una entrevista técnica (SPRINT 6)"""
     try:

@@ -58,11 +58,12 @@ router = APIRouter(prefix="/simulators", tags=["Simulators"])
 # Import and include sub-routers
 from .interview import router as interview_router
 from .incident import router as incident_router
-from .sprint6 import router as sprint6_router
+# Cortez66: Renamed from sprint6.py to advanced.py
+from .advanced import router as advanced_router
 
 router.include_router(interview_router)
 router.include_router(incident_router)
-router.include_router(sprint6_router)
+router.include_router(advanced_router)
 
 
 @router.get(

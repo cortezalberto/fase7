@@ -31,7 +31,8 @@ class EvaluationDB(Base, BaseModel):
         index=True
     )
     student_id = Column(String(100), nullable=False, index=True)
-    activity_id = Column(String(100), nullable=False)
+    # FIX Cortez68 (MEDIUM): Add index for activity_id lookups
+    activity_id = Column(String(100), nullable=False, index=True)
 
     # Overall assessment
     overall_competency_level = Column(String(50), nullable=False)  # CompetencyLevel

@@ -266,7 +266,8 @@ class ResearchDataExporter:
         # Create a sheet for each data type
         for sheet_name, records in data.items():
             if not records:
-                logger.warning(f"No data for sheet '{sheet_name}', skipping")
+                # FIX Cortez69 CRIT-CORE-001: Use lazy logging
+                logger.warning("No data for sheet '%s', skipping", sheet_name)
                 continue
 
             # Use custom sheet name if configured
@@ -411,10 +412,12 @@ class ResearchDataExporter:
             compressed = self.compress_output(output_data, filename)
             zip_path = output_path.with_suffix(output_path.suffix + ".zip")
             zip_path.write_bytes(compressed)
-            logger.info(f"Compressed output written to {zip_path}")
+            # FIX Cortez69 CRIT-CORE-001: Use lazy logging
+            logger.info("Compressed output written to %s", zip_path)
             return compressed
 
         if output_path:
-            logger.info(f"Output written to {output_path}")
+            # FIX Cortez69 CRIT-CORE-001: Use lazy logging
+            logger.info("Output written to %s", output_path)
 
         return output_data

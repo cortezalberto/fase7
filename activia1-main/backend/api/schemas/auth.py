@@ -213,6 +213,9 @@ class UserResponse(BaseModel):
     is_active: bool = Field(..., description="Is user active", examples=[True])
     is_verified: bool = Field(..., description="Is email verified", examples=[False])
     created_at: str = Field(..., description="Account creation timestamp")
+    # Cortez65.2: Academic context for testing without LTI
+    course_name: Optional[str] = Field(None, description="Current course name", examples=["Programacion I"])
+    commission: Optional[str] = Field(None, description="Commission code", examples=["K1021"])
 
     class Config:
         json_schema_extra = {
@@ -225,7 +228,9 @@ class UserResponse(BaseModel):
                 "roles": ["student"],
                 "is_active": True,
                 "is_verified": False,
-                "created_at": "2025-01-15T10:30:00Z"
+                "created_at": "2025-01-15T10:30:00Z",
+                "course_name": "Programacion I",
+                "commission": "K1021"
             }
         }
 
@@ -248,7 +253,9 @@ class UserWithTokenResponse(BaseModel):
                     "roles": ["student"],
                     "is_active": True,
                     "is_verified": False,
-                    "created_at": "2025-01-15T10:30:00Z"
+                    "created_at": "2025-01-15T10:30:00Z",
+                    "course_name": "Programacion I",
+                    "commission": "K1021"
                 },
                 "tokens": {
                     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",

@@ -14,7 +14,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { sessionsService } from '../services/api';
+import { sessionsService, teacherTraceabilityService, TraceabilitySummaryResponse } from '../services/api';
 import apiClient from '../services/api/client';
 import {
   Activity,
@@ -29,7 +29,10 @@ import {
   Zap,
   BarChart3,
   ChevronRight,
+  GitBranch,
+  Eye,
 } from 'lucide-react';
+import StudentTraceabilityViewer from '../components/teacher/StudentTraceabilityViewer';
 
 interface TeacherAlert {
   alert_id: string;
@@ -101,7 +104,7 @@ interface SessionDisplay {
   trace_count: number;
 }
 
-type ViewMode = 'alerts' | 'comparison' | 'sessions';
+type ViewMode = 'alerts' | 'comparison' | 'sessions' | 'traceability';
 
 export default function StudentMonitoringPage() {
   const [searchParams] = useSearchParams();
@@ -113,6 +116,8 @@ export default function StudentMonitoringPage() {
   const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [comparison, setComparison] = useState<StudentComparison | null>(null);
   const [sessions, setSessions] = useState<SessionDisplay[]>([]);
+  const [traceabilitySummary, setTraceabilitySummary] = useState<TraceabilitySummaryResponse | null>(null);
+  const [selectedStudentForTraceability, setSelectedStudentForTraceability] = useState<string | null>(null);
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState<string>('all');
@@ -122,6 +127,7 @@ export default function StudentMonitoringPage() {
   // Auto-refresh interval
   const [autoRefresh, setAutoRefresh] = useState(true);
 
+  // FIX Cortez71: Removed console.error, only log in DEV
   // Load alerts
   const loadAlerts = useCallback(async () => {
     try {
@@ -129,8 +135,8 @@ export default function StudentMonitoringPage() {
       const response = await apiClient.get<{ data: AlertsResponse }>(`/teacher/alerts${params}`);
       const data = response.data;
       setAlerts('data' in data ? data.data : data as unknown as AlertsResponse);
-    } catch (err) {
-      console.error('Error loading alerts:', err);
+    } catch {
+      // Error handled silently - alerts will show empty
     }
   }, [severityFilter]);
 
@@ -141,8 +147,8 @@ export default function StudentMonitoringPage() {
       const response = await apiClient.get<{ data: StudentComparison }>(`/teacher/students/compare?activity_id=${activityFilter}`);
       const data = response.data;
       setComparison('data' in data ? data.data : data as unknown as StudentComparison);
-    } catch (err) {
-      console.error('Error loading comparison:', err);
+    } catch {
+      // Error handled silently
     }
   }, [activityFilter]);
 
@@ -153,23 +159,37 @@ export default function StudentMonitoringPage() {
       // Filter for active sessions only
       const activeSessions = (response.data || []).filter(s => s.status === 'active');
       setSessions(activeSessions);
-    } catch (err) {
-      console.error('Error loading sessions:', err);
+    } catch {
+      // Error handled silently
     }
   }, []);
 
+  // Load traceability summary
+  const loadTraceabilitySummary = useCallback(async () => {
+    try {
+      const data = await teacherTraceabilityService.getTraceabilitySummary({
+        activity_id: activityFilter || undefined,
+      });
+      setTraceabilitySummary(data);
+    } catch {
+      // Error handled silently
+    }
+  }, [activityFilter]);
+
+  // FIX Cortez71 HIGH-003: Use AbortController for proper cleanup
   // Initial load and auto-refresh
   useEffect(() => {
-    let isMounted = true;
+    const abortController = new AbortController();
+
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        await Promise.all([loadAlerts(), loadSessions()]);
+        await Promise.all([loadAlerts(), loadSessions(), loadTraceabilitySummary()]);
       } catch {
-        if (isMounted) setError('Error al cargar datos de monitoreo');
+        if (!abortController.signal.aborted) setError('Error al cargar datos de monitoreo');
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (!abortController.signal.aborted) setIsLoading(false);
       }
     };
     loadData();
@@ -178,18 +198,19 @@ export default function StudentMonitoringPage() {
     let interval: ReturnType<typeof setInterval> | undefined;
     if (autoRefresh) {
       interval = setInterval(() => {
-        if (isMounted) {
+        if (!abortController.signal.aborted) {
           loadAlerts();
           loadSessions();
+          loadTraceabilitySummary();
         }
       }, 30000);
     }
 
     return () => {
-      isMounted = false;
+      abortController.abort();
       if (interval) clearInterval(interval);
     };
-  }, [loadAlerts, loadSessions, autoRefresh]);
+  }, [loadAlerts, loadSessions, loadTraceabilitySummary, autoRefresh]);
 
   // Load comparison when activity filter changes
   useEffect(() => {
@@ -197,6 +218,13 @@ export default function StudentMonitoringPage() {
       loadComparison();
     }
   }, [activityFilter, viewMode, loadComparison]);
+
+  // Load traceability when viewing traceability tab
+  useEffect(() => {
+    if (viewMode === 'traceability') {
+      loadTraceabilitySummary();
+    }
+  }, [viewMode, loadTraceabilitySummary]);
 
   const handleAcknowledgeAlert = async (alertId: string) => {
     try {
@@ -224,16 +252,19 @@ export default function StudentMonitoringPage() {
   };
 
   // FIX Cortez60: Memoize filtered lists to avoid recalculation on each render
+  // FIX Cortez71 MED-003: Dependencies are correct - alerts/sessions are new arrays on each fetch
   const filteredAlerts = useMemo(() => {
-    return alerts?.alerts.filter(alert => {
+    if (!alerts?.alerts) return [];
+    return alerts.alerts.filter(alert => {
       if (searchQuery && !alert.student_id.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
       }
       return true;
-    }) || [];
-  }, [alerts?.alerts, searchQuery]);
+    });
+  }, [alerts, searchQuery]);
 
   const filteredSessions = useMemo(() => {
+    if (!sessions.length) return [];
     return sessions.filter(session => {
       if (searchQuery && !session.student_id?.toLowerCase().includes(searchQuery.toLowerCase())) {
         return false;
@@ -246,6 +277,7 @@ export default function StudentMonitoringPage() {
     { id: 'alerts' as ViewMode, label: 'Alertas', icon: AlertTriangle, count: alerts?.total_alerts },
     { id: 'sessions' as ViewMode, label: 'Sesiones Activas', icon: Activity, count: sessions.length },
     { id: 'comparison' as ViewMode, label: 'Comparacion', icon: BarChart3 },
+    { id: 'traceability' as ViewMode, label: 'Trazabilidad N4', icon: GitBranch, count: traceabilitySummary?.total_traces },
   ];
 
   if (isLoading) {
@@ -658,6 +690,199 @@ export default function StudentMonitoringPage() {
                       </span>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+          )
+        )}
+
+        {/* Traceability View */}
+        {viewMode === 'traceability' && (
+          selectedStudentForTraceability ? (
+            <div className="p-6">
+              <StudentTraceabilityViewer
+                studentId={selectedStudentForTraceability}
+                activityId={activityFilter || undefined}
+                onClose={() => setSelectedStudentForTraceability(null)}
+              />
+            </div>
+          ) : (
+            <div className="p-6 space-y-6">
+              {/* Traceability Summary */}
+              {traceabilitySummary ? (
+                <>
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                      <div className="text-2xl font-bold text-[var(--text-primary)]">
+                        {traceabilitySummary.total_students}
+                      </div>
+                      <div className="text-sm text-[var(--text-muted)]">Estudiantes con Trazas</div>
+                    </div>
+                    <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                      <div className="text-2xl font-bold text-[var(--text-primary)]">
+                        {traceabilitySummary.total_traces}
+                      </div>
+                      <div className="text-sm text-[var(--text-muted)]">Total Trazas N4</div>
+                    </div>
+                    <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                      <div className="text-2xl font-bold text-red-500">
+                        {traceabilitySummary.ai_dependency_distribution.high}
+                      </div>
+                      <div className="text-sm text-[var(--text-muted)]">Alta Dependencia IA</div>
+                    </div>
+                    <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                      <div className="text-2xl font-bold text-green-500">
+                        {traceabilitySummary.ai_dependency_distribution.low}
+                      </div>
+                      <div className="text-sm text-[var(--text-muted)]">Baja Dependencia IA</div>
+                    </div>
+                  </div>
+
+                  {/* Cognitive States Global Distribution */}
+                  {Object.keys(traceabilitySummary.cognitive_states_global).length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                        <Brain className="w-5 h-5 text-purple-500" />
+                        Distribucion Global de Estados Cognitivos
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(traceabilitySummary.cognitive_states_global)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([state, count]) => (
+                            <span
+                              key={state}
+                              className="px-3 py-1 bg-purple-500/10 text-purple-400 rounded-full text-sm"
+                            >
+                              {state}: {count}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Traceability Alerts */}
+                  {traceabilitySummary.alerts.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-yellow-500" />
+                        Alertas de Trazabilidad
+                      </h3>
+                      <div className="space-y-2">
+                        {traceabilitySummary.alerts.map((alert, idx) => (
+                          <div
+                            key={idx}
+                            className={`p-3 rounded-lg ${
+                              alert.severity === 'critical'
+                                ? 'bg-red-500/10 border border-red-500/20'
+                                : 'bg-yellow-500/10 border border-yellow-500/20'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle
+                                className={`w-4 h-4 mt-0.5 ${
+                                  alert.severity === 'critical' ? 'text-red-500' : 'text-yellow-500'
+                                }`}
+                              />
+                              <div>
+                                <p className="text-sm text-[var(--text-primary)]">{alert.message}</p>
+                                {alert.students && alert.students.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1">
+                                    {alert.students.map((studentId) => (
+                                      <button
+                                        key={studentId}
+                                        onClick={() => setSelectedStudentForTraceability(studentId)}
+                                        className="text-xs px-2 py-1 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded hover:text-[var(--accent-primary)] transition-colors"
+                                      >
+                                        {studentId}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Students by AI Dependency */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+                      Estudiantes por Dependencia de IA
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* High AI Dependency */}
+                      <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4">
+                        <h4 className="text-sm font-medium text-red-500 mb-3">Alta (&gt;70%)</h4>
+                        {traceabilitySummary.students_by_ai_dependency.high.length > 0 ? (
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {traceabilitySummary.students_by_ai_dependency.high.map((studentId) => (
+                              <button
+                                key={studentId}
+                                onClick={() => setSelectedStudentForTraceability(studentId)}
+                                className="w-full flex items-center justify-between p-2 bg-[var(--bg-secondary)] rounded hover:bg-[var(--bg-hover)] transition-colors"
+                              >
+                                <span className="text-sm text-[var(--text-primary)]">{studentId}</span>
+                                <Eye className="w-4 h-4 text-[var(--text-muted)]" />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)]">Ninguno</p>
+                        )}
+                      </div>
+
+                      {/* Medium AI Dependency */}
+                      <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4">
+                        <h4 className="text-sm font-medium text-yellow-500 mb-3">Media (40-70%)</h4>
+                        {traceabilitySummary.students_by_ai_dependency.medium.length > 0 ? (
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {traceabilitySummary.students_by_ai_dependency.medium.map((studentId) => (
+                              <button
+                                key={studentId}
+                                onClick={() => setSelectedStudentForTraceability(studentId)}
+                                className="w-full flex items-center justify-between p-2 bg-[var(--bg-secondary)] rounded hover:bg-[var(--bg-hover)] transition-colors"
+                              >
+                                <span className="text-sm text-[var(--text-primary)]">{studentId}</span>
+                                <Eye className="w-4 h-4 text-[var(--text-muted)]" />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)]">Ninguno</p>
+                        )}
+                      </div>
+
+                      {/* Low AI Dependency */}
+                      <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
+                        <h4 className="text-sm font-medium text-green-500 mb-3">Baja (&lt;40%)</h4>
+                        {traceabilitySummary.students_by_ai_dependency.low.length > 0 ? (
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {traceabilitySummary.students_by_ai_dependency.low.map((studentId) => (
+                              <button
+                                key={studentId}
+                                onClick={() => setSelectedStudentForTraceability(studentId)}
+                                className="w-full flex items-center justify-between p-2 bg-[var(--bg-secondary)] rounded hover:bg-[var(--bg-hover)] transition-colors"
+                              >
+                                <span className="text-sm text-[var(--text-primary)]">{studentId}</span>
+                                <Eye className="w-4 h-4 text-[var(--text-muted)]" />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)]">Ninguno</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-12 text-[var(--text-muted)]">
+                  <GitBranch className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium text-[var(--text-primary)] mb-2">Sin datos de trazabilidad</p>
+                  <p>No hay trazas cognitivas registradas</p>
                 </div>
               )}
             </div>

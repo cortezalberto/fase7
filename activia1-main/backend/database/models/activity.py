@@ -52,6 +52,13 @@ class ActivityDB(Base, BaseModel):
     difficulty = Column(String(20), nullable=True)  # INICIAL, INTERMEDIO, AVANZADO
     estimated_duration_minutes = Column(Integer, nullable=True)
 
+    # LTI/Moodle Integration (Cortez65.1)
+    # These fields allow automatic activity matching when students launch from Moodle
+    moodle_course_id = Column(String(255), nullable=True, index=True)  # context_id from Moodle
+    moodle_course_name = Column(String(255), nullable=True)  # context_title (course name)
+    moodle_course_label = Column(String(100), nullable=True)  # context_label (commission code)
+    moodle_resource_name = Column(String(255), nullable=True, index=True)  # resource_link_title (activity name in Moodle)
+
     # Tags for categorization
     tags = Column(JSON, default=list)  # ["colas", "estructuras", "arreglos"]
 
@@ -70,6 +77,8 @@ class ActivityDB(Base, BaseModel):
         Index('idx_activity_status_created', 'status', 'created_at'),
         # Query: Search by subject
         Index('idx_activity_subject_status', 'subject', 'status'),
+        # Query: Find activity by Moodle course and resource name (LTI matching)
+        Index('idx_activity_moodle_match', 'moodle_course_id', 'moodle_resource_name'),
         # FIX 2.5 Cortez6: Check constraint for valid status values
         CheckConstraint(
             "status IN ('draft', 'active', 'archived')",

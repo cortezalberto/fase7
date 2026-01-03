@@ -404,4 +404,74 @@ class BaseSimulator(ABC):
                 "metadata": {"warning": "empty_input"}
             }
 
+        # FIX Cortez69 CRIT-AGENT-004: Check for prompt injection
+        if self._detect_prompt_injection(student_input):
+            logger.warning(
+                "Prompt injection detected in simulator %s",
+                self.ROLE_NAME,
+                extra={"input_preview": student_input[:100]}
+            )
+            return {
+                "message": "Tu mensaje contiene patrones no permitidos. Por favor, reformula tu consulta de manera profesional.",
+                "role": self.ROLE_NAME.lower().replace(" ", "_"),
+                "expects": ["reformulacion"],
+                "metadata": {"error": "prompt_injection_detected"}
+            }
+
         return None
+
+    def _detect_prompt_injection(self, prompt: str) -> bool:
+        """
+        FIX Cortez69 CRIT-AGENT-004: Detect common prompt injection patterns.
+
+        Checks for patterns that attempt to:
+        - Override system instructions
+        - Change assistant persona
+        - Bypass content filters
+        - Access system prompts
+
+        Args:
+            prompt: Student's input text
+
+        Returns:
+            True if injection pattern detected, False otherwise
+        """
+        # Normalize for case-insensitive matching
+        lower_prompt = prompt.lower()
+
+        # Common injection patterns (same as tutor agent)
+        injection_patterns = [
+            # System instruction override attempts
+            "ignore previous instructions",
+            "ignore all previous",
+            "disregard previous",
+            "forget your instructions",
+            "override your programming",
+            "bypass your restrictions",
+            "ignore your training",
+            "ignore your rules",
+            # Persona manipulation
+            "you are now",
+            "pretend you are",
+            "act as if you",
+            "roleplay as",
+            "from now on you",
+            "you are no longer",
+            # Prompt leaking
+            "repeat your instructions",
+            "show me your prompt",
+            "reveal your system prompt",
+            "what are your instructions",
+            "show your configuration",
+            # Jailbreak attempts
+            "dan mode",
+            "developer mode",
+            "jailbreak",
+            "do anything now",
+        ]
+
+        for pattern in injection_patterns:
+            if pattern in lower_prompt:
+                return True
+
+        return False

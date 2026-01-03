@@ -6,8 +6,13 @@ Supports:
 - PostgreSQL (production)
 - Session management with context managers
 - Connection pooling
+
+FIX Cortez67: Added thread-safe singleton pattern for database configuration
+to prevent race conditions in multi-worker deployments.
 """
+import logging
 import os
+import threading
 from contextlib import contextmanager
 from typing import Generator, Optional
 
@@ -16,6 +21,8 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
 from .base import Base
+
+logger = logging.getLogger(__name__)
 
 # IMPORTANT: Import all models before calling create_all_tables()
 # This ensures SQLAlchemy's metadata is aware of all table definitions
@@ -142,7 +149,9 @@ class DatabaseConfig:
 
 
 # Global database configuration instance
+# FIX Cortez67: Added thread lock for thread-safe singleton initialization
 _db_config: Optional[DatabaseConfig] = None
+_db_config_lock = threading.Lock()
 
 
 def init_database(
@@ -160,21 +169,35 @@ def init_database(
 
     Returns:
         DatabaseConfig instance
+
+    FIX Cortez67: Thread-safe initialization using lock.
     """
     global _db_config
-    _db_config = DatabaseConfig(database_url=database_url, echo=echo)
+    with _db_config_lock:
+        _db_config = DatabaseConfig(database_url=database_url, echo=echo)
 
-    if create_tables:
-        _db_config.create_all_tables()
+        if create_tables:
+            _db_config.create_all_tables()
 
-    return _db_config
+        logger.info("Database initialized: %s", database_url or "SQLite default")
+        return _db_config
 
 
 def get_db_config() -> DatabaseConfig:
-    """Get the global database configuration"""
+    """
+    Get the global database configuration.
+
+    FIX Cortez67: Thread-safe singleton using double-checked locking pattern.
+    This prevents race conditions when multiple threads/workers call this
+    function simultaneously during startup.
+    """
     global _db_config
+    # First check (without lock - fast path)
     if _db_config is None:
-        _db_config = init_database()
+        with _db_config_lock:
+            # Second check (with lock - prevents race condition)
+            if _db_config is None:
+                _db_config = init_database()
     return _db_config
 
 
@@ -232,6 +255,41 @@ def get_db():
         db.close()
 
 
-# Aliases for compatibility
-SessionLocal = get_db_config().get_session_factory()
-engine = get_db_config().get_engine()
+# FIX Cortez67: Lazy initialization for module-level aliases
+# These are now functions to prevent premature initialization at import time
+# and allow proper thread-safe initialization via get_db_config()
+def _get_session_local() -> sessionmaker:
+    """Get SessionLocal factory (lazy initialization)."""
+    return get_db_config().get_session_factory()
+
+
+def _get_engine() -> Engine:
+    """Get SQLAlchemy engine (lazy initialization)."""
+    return get_db_config().get_engine()
+
+
+# Aliases for backward compatibility - now using lazy getters
+# Note: If code uses SessionLocal() directly, it will work because
+# calling _get_session_local() returns a callable sessionmaker
+class _LazySessionLocal:
+    """Lazy proxy for SessionLocal to maintain backward compatibility."""
+
+    def __call__(self):
+        return _get_session_local()()
+
+    def __getattr__(self, name):
+        return getattr(_get_session_local(), name)
+
+
+SessionLocal = _LazySessionLocal()
+
+
+# For engine, we provide a property-like access
+class _LazyEngine:
+    """Lazy proxy for engine to maintain backward compatibility."""
+
+    def __getattr__(self, name):
+        return getattr(_get_engine(), name)
+
+
+engine = _LazyEngine()

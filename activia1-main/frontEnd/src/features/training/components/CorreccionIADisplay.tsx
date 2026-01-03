@@ -98,10 +98,11 @@ export function CorreccionIADisplay({
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
             <span>💡</span> Sugerencias de mejora
           </h4>
+          {/* FIX Cortez71 HIGH-001: Use stable key based on content + index */}
           <ul className="space-y-2">
             {sugerencias.map((sugerencia, index) => (
               <li
-                key={index}
+                key={`sugerencia-${index}-${sugerencia.slice(0, 20)}`}
                 className="flex items-start gap-2 text-gray-600 dark:text-gray-400"
               >
                 <span className="flex-shrink-0 w-5 h-5 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 rounded-full flex items-center justify-center text-xs font-medium">

@@ -375,25 +375,33 @@ async def submit_json_exercise(
             
             # Si expected es una expresión Python (ej: "total == 42600"), evaluarla
             if expected and ('==' in expected or 'and' in expected or 'or' in expected or '>' in expected or '<' in expected):
-                # Es una expresión Python, ejecutar código y evaluar
-                try:
-                    # Crear contexto ejecutando el código del estudiante
-                    exec_globals = {}
-                    exec(submission.student_code, exec_globals)
-                    
-                    # Evaluar la expresión expected en ese contexto
-                    test_passed = eval(expected, exec_globals)
-                    
-                    if test_passed:
-                        tests_passed += 1
-                        # FIX Cortez36: Use lazy logging formatting
-                        logger.info("✓ Test %d PASADO: %s", i, expected)
-                    else:
-                        # FIX Cortez36: Use lazy logging formatting
-                        logger.warning("✗ Test %d FALLÓ: %s (evaluó a False)", i, expected)
-                except Exception as e:
-                    # FIX Cortez36: Use lazy logging formatting
-                    logger.warning("✗ Test %d ERROR: %s", i, e)
+                # FIX Cortez70 CRIT-API-002: Use sandbox instead of exec/eval in server process
+                # Create wrapper code that runs student code then evaluates the expression
+                # and prints the result for the sandbox to capture
+                wrapper_code = f'''{submission.student_code}
+
+# FIX Cortez70: Evaluate test expression in sandbox
+_test_result = {expected}
+print("__TEST_RESULT__:" + str(_test_result))
+'''
+                stdout, stderr, exec_time = execute_python_code(
+                    wrapper_code,
+                    str(test_input),
+                    timeout_seconds=30
+                )
+                total_execution_time += exec_time
+
+                # Parse the result from sandbox output
+                test_passed = False
+                if not stderr and "__TEST_RESULT__:True" in stdout:
+                    test_passed = True
+                    tests_passed += 1
+                    logger.info("Test %d PASSED: %s", i, expected)
+                elif "__TEST_RESULT__:False" in stdout:
+                    logger.warning("Test %d FAILED: %s (evaluated to False)", i, expected)
+                else:
+                    # Error or unexpected output
+                    logger.warning("Test %d ERROR: %s", i, stderr if stderr else "unexpected output")
             else:
                 # Es un test de output, ejecutar código con input
                 stdout, stderr, exec_time = execute_python_code(
@@ -556,7 +564,7 @@ async def submit_code(
     request: Request,  # FIX 1.3 Cortez3: Required for rate limiter
     submission: CodeSubmission,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """Envía código para evaluación (requiere autenticación)"""
     # Obtener ejercicio
@@ -651,7 +659,7 @@ async def submit_code(
 @router.get("/user/submissions")
 async def get_user_submissions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """Obtiene todas las submissions del usuario actual"""
     submissions = db.query(UserExerciseSubmission).filter(

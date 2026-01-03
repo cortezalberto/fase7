@@ -8,7 +8,7 @@ Provides:
 - TraceSequenceDB: Database model for trace sequences
 """
 from sqlalchemy import (
-    Column, String, Text, Float, ForeignKey, JSON, Index, CheckConstraint
+    Column, String, Text, Float, Integer, ForeignKey, JSON, Index, CheckConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -141,7 +141,8 @@ class TraceSequenceDB(Base, BaseModel):
     activity_id = Column(String(100), nullable=False)
 
     # Aggregated metrics
-    total_traces = Column(Float, default=0)
+    # FIX Cortez69 CRIT-DB-001: Changed from Float to Integer (trace count is always integer)
+    total_traces = Column(Integer, default=0)
     avg_ai_involvement = Column(Float, default=0.0)
     detected_risks = Column(JSON, default=list)
     competencies = Column(JSON, default=dict)

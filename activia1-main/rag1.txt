@@ -1,0 +1,2795 @@
+Lo que estás describiendo, visto con lentes de programador senior y pensando desde el día cero en RAG con buenas prácticas, no es “un sistema de TPs con IA”, sino un sistema de gestión de aprendizaje atomizado, donde cada pieza (documento, ejercicio, entrega, sesión, evaluación, trazabilidad) queda modelada como objeto auditable y recuperable por IA.
+
+La idea central es que el docente construye un plan de trabajo estructurado por Materia → Unidad → Actividad → Ejercicios, y el estudiante recorre ese plan en múltiples jornadas, dejando una huella completa de cómo pensó y cómo usó IA en cada paso. Para que esto funcione bien (y escale), el diseño tiene que separar con claridad dos mundos:
+
+El mundo “académico” (estático): lo que el docente define y publica (materias, unidades, ejercicios, documentos, historias de usuario, criterios de aceptación, rúbricas).
+
+El mundo “ejecución” (dinámico): lo que el estudiante hace (sesiones, prompts, versiones, entregas, evaluaciones, estados parciales).
+
+Estructura académica: materia/unidad/actividad/ejercicio como catálogo
+
+Desde el punto de vista de datos, una materia contiene unidades, y cada unidad contiene una o más actividades prácticas. Cada actividad agrupa múltiples ejercicios (por ejemplo 15), pero el ejercicio debe ser el átomo real del sistema: la unidad mínima de progreso, evaluación y trazabilidad.
+
+El ejercicio no se guarda como un texto informal. Se “sanitiza” para que tenga forma contractual y reutilizable por la IA. Esa sanitización tiene dos productos inseparables:
+
+Historia de usuario: define intención, contexto y propósito (“como estudiante…, quiero…, para…”).
+
+Criterios de aceptación: definen condiciones verificables de cumplimiento (entrada/salida, restricciones, casos límite, estilo, complejidad, prohibiciones, requerimientos de pruebas, etc.).
+
+Esta decisión tiene implicancias técnicas fuertes: convierte el ejercicio en un artefacto evaluable y a la vez en una fuente de ground truth para RAG, porque el sistema puede recuperar (y citar) la historia y los criterios como contexto “oficial” durante la resolución y durante la evaluación.
+
+Luego, a cada ejercicio se le adjunta una rúbrica propia (no una rúbrica genérica del TP). A nivel ingeniería, esto es lo que habilita evaluación incremental y feedback inmediato. La rúbrica se modela como un conjunto de criterios con descriptores por nivel (por ejemplo, 0–3 o 1–4), y esos criterios deben mapear lo más posible a los criterios de aceptación (con algunos criterios adicionales típicos: claridad, estilo, pruebas, y especialmente “uso de IA” con enfoque crítico).
+
+Con este diseño, el “trabajo práctico” deja de ser una única unidad monolítica y pasa a ser un contenedor de ejercicios atomizados, cada uno con contrato (HU + CA) y evaluador (rúbrica).
+
+Documentos PDF por unidad: materiales como conocimiento “publicado” para RAG
+
+A esto se suma un segundo eje: los documentos PDF encadenados a una unidad, y un PDF único de enunciado por unidad (maestro–detalle). En términos de buenas prácticas RAG, estos PDFs no son “archivos adjuntos”: son fuentes curriculares publicadas con jerarquía y orden.
+
+La unidad necesita:
+
+Un PDF ENUNCIADO (único), que define la consigna global o marco de la unidad.
+
+Varios PDFs MATERIALES (múltiples), encadenados con un campo orden, que representan el camino recomendado de lectura.
+
+Técnicamente, esto implica que el pipeline RAG tiene que poder filtrar por:
+
+materia_id, unidad_id
+
+tipo_documento (enunciado vs material)
+
+estado (publicado/borrador)
+
+orden (para UI y, opcionalmente, para sesgo de recuperación)
+
+Y, si vas con mejores prácticas, esos PDFs deben pasar por un proceso controlado de:
+
+extracción de texto,
+
+chunking con metadatos ricos (unidad, documento, páginas),
+
+embeddings con versionado,
+
+y un índice vectorial (pgvector) con posibilidad de reindexar ante cambios.
+
+En un sistema educativo, esto además habilita que las respuestas de IA sean citables, porque cada chunk guarda trazabilidad a documento_id, page_from/to y hash, lo que te permite generar “fuentes” tipo: Unidad 3 → Material 2 → pág. 5–6.
+
+Trazabilidad cognitiva: el “estado” vive en ejercicio_estudiante y en sesiones
+
+El núcleo de tu texto está en el problema operativo: una actividad puede tener 15 ejercicios y el estudiante tal vez resuelve solo 5 en la primera jornada. La respuesta “correcta” no es guardar un estado global de la actividad, sino modelar el progreso por ejercicio y por estudiante, con un concepto explícito de sesión.
+
+En un diseño sólido, el sistema crea y mantiene:
+
+Un registro ejercicio_estudiante (clave compuesta estudiante+ejercicio) donde vive el estado: no_iniciado, en_progreso, finalizado, reenviado, validado.
+
+Un registro sesion_trabajo por ingreso/periodo de trabajo, con timestamps y contexto.
+
+Un conjunto de eventos interaccion_ia (prompts, respuestas, decisiones, referencias RAG, herramientas invocadas, etc.) enlazados a esa sesión y al ejercicio.
+
+Esto resuelve el “continuar” de manera natural: cuando el estudiante vuelve, el sistema consulta todos los ejercicio_estudiante asociados a esa actividad/unidad y propone retomar por prioridad:
+
+ejercicios en_progreso (con recuperación de última versión + contexto RAG de esa interacción),
+
+luego no_iniciado,
+
+y deja finalizado/validado como solo lectura con trazabilidad completa.
+
+La continuidad no depende de “recordar” en memoria; depende de persistir tres cosas:
+
+última versión de trabajo (código/artefacto),
+
+último estado,
+
+bitácora IA (prompts+respuestas+fuentes recuperadas).
+
+Este último punto es clave para mejores prácticas: si el estudiante retoma un ejercicio, el sistema debe poder reconstruir el contexto con el que venía trabajando, pero sin inflar tokens. Eso se logra con un esquema tipo:
+
+guardar transcript completo (para auditoría),
+
+y además guardar un resumen incremental por sesión/ejercicio (para rehidratar contexto rápido),
+
+y, para RAG, guardar el set de “fuentes más usadas” (top-docs) como pistas.
+
+RAG con mejores prácticas: qué significa “bien hecho” en este caso
+
+En tu caso, RAG no es “buscar en PDFs” a secas. Es un RAG curricular con controles:
+
+Ámbito: por defecto, el retrieval debe estar restringido a la unidad (y opcionalmente materia), para evitar contaminación entre unidades.
+
+Priorización: el enunciado y los criterios de aceptación deberían tener mayor prioridad que materiales secundarios.
+
+Citas y auditoría: toda respuesta que use retrieval debe registrar retrieval_trace (ids de chunks + scores + páginas).
+
+Versionado: si el docente reemplaza un PDF, se debe archivar/ versionar y re-embeddar. El sistema debe saber qué versión del material “existía” cuando el estudiante trabajó (muy importante en trazabilidad).
+
+Controles anti-alucinación: si la confianza del retrieval es baja, el asistente debe “declarar incertidumbre” y pedir aclaración o sugerir consultar al docente, y ese evento debe registrarse.
+
+A nivel ingeniería, eso se traduce en: cada interacción IA relevante produce un registro con:
+
+prompt del estudiante,
+
+contexto construido (HU+CA+fragmentos RAG),
+
+respuesta del modelo,
+
+fuentes recuperadas,
+
+decisión de ruta (RAG vs fallback),
+
+y (si corresponde) evaluación del riesgo.
+
+En síntesis técnica
+
+Tu texto define un sistema donde:
+
+El docente publica un catálogo estructurado: Materia → Unidad → (Actividad) → Ejercicios, cada ejercicio con HU+CA y rúbrica.
+
+El docente además publica un corpus documental por unidad (enunciado único + materiales encadenados), que será indexado para RAG con metadatos y versionado.
+
+El estudiante ejecuta el recorrido en múltiples sesiones, con progreso persistente por ejercicio, y con un log completo de interacciones IA y versiones de trabajo.
+
+La “continuidad” de ejercicios pendientes se resuelve consultando estados por ejercicio y rehidratando contexto desde: última versión + resumen + trazas de retrieval.
+
+Si querés, el próximo paso te lo bajo a un diseño “de implementación” aún más senior:
+
+modelo de eventos (event sourcing light) para trazabilidad IA,
+
+esquema pgvector con chunks y metadatos,
+
+y políticas de rehidratación de contexto (qué guardar como resumen, qué guardar como raw, qué traer al prompt).
+
+si quiero
+
+Perfecto. Te dejo el diseño de implementación (nivel SR) con RAG best practices, modelo de eventos, pgvector, y estrategia de rehidratación de contexto para que el estudiante pueda cortar y retomar sin perder trazabilidad.
+
+1) Arquitectura lógica mínima (pero completa)
+Dos capas de persistencia (separadas a propósito)
+
+Catálogo académico (estático / docente)
+
+Materia, Unidad, Actividad, Ejercicio
+
+Historia de usuario, criterios de aceptación
+
+Rúbrica del ejercicio
+
+Documentos PDF por unidad (enunciado + materiales encadenados)
+
+Ejecución (dinámico / estudiante)
+
+Progreso por ejercicio (estado, timestamps)
+
+Sesiones de trabajo
+
+Entregas / versiones (código, archivos, respuestas)
+
+Eventos de IA (prompt, respuesta, retrieval, evaluación, decisiones)
+
+Evaluación de la entrega (humana o IA)
+
+Separar esto te da: auditoría, escalabilidad y reuso.
+
+2) Modelo de datos SR (PostgreSQL + pgvector)
+2.1 Catálogo académico
+
+materia
+
+id, nombre
+
+unidad
+
+id, materia_id, nombre, nro
+
+actividad
+
+id, unidad_id, nombre, orden
+
+ejercicio
+
+id, actividad_id, titulo, dificultad, tags, orden
+
+ejercicio_hu (historia de usuario)
+
+ejercicio_id (PK/FK), hu_text
+
+ejercicio_ca (criterios aceptación)
+
+id, ejercicio_id, ca_text, orden
+
+ejercicio_rubrica
+
+id, ejercicio_id, version, estado (publicada/borrador)
+
+rubrica_item
+
+id, rubrica_id, criterio, peso, orden
+
+rubrica_nivel
+
+id, rubrica_item_id, nivel (1..4), descriptor
+
+2.2 Documentos PDF por unidad (maestro–detalle)
+
+unidad_documento
+
+id, unidad_id
+
+tipo (ENUNCIADO, MATERIAL)
+
+titulo
+
+storage_key, sha256, size_bytes, mime
+
+orden
+
+estado (PUBLICADO, ARCHIVADO)
+
+created_at
+
+✅ Índice único parcial: 1 ENUNCIADO vigente por unidad.
+
+2.3 RAG: extracción + chunks + embeddings (pgvector)
+
+documento_ingesta
+
+id, unidad_documento_id
+
+version (int) — cambia si se reemplaza PDF
+
+status (PENDING, OK, ERROR)
+
+extracted_at
+
+parser (pymupdf/pdfplumber/…)
+
+text_hash
+
+documento_chunk (esto es el corazón del retrieval)
+
+id
+
+unidad_id
+
+unidad_documento_id
+
+ingesta_id
+
+chunk_index
+
+page_from, page_to
+
+content_text
+
+embedding VECTOR(1536) o VECTOR(3072) según modelo
+
+token_count
+
+metadata JSONB (títulos, headings, etc.)
+
+Índices:
+
+pgvector index (IVFFLAT/HNSW según config)
+
+btree por unidad_id, tipo_doc, estado
+
+2.4 Ejecución estudiante: progreso + sesiones + entregas
+
+estudiante
+
+id, nombre…
+
+ejercicio_estudiante (estado vive acá)
+
+id
+
+estudiante_id
+
+ejercicio_id
+
+estado (NO_INICIADO, EN_PROGRESO, FINALIZADO, REENVIO, VALIDADO)
+
+last_session_id (nullable)
+
+started_at, last_activity_at, completed_at
+
+score_actual (nullable)
+
+intentos (int)
+
+UNIQUE(estudiante_id, ejercicio_id)
+
+sesion_trabajo
+
+id
+
+estudiante_id
+
+unidad_id
+
+actividad_id (nullable)
+
+started_at, ended_at
+
+device_info, ip_hash (opcional)
+
+resumen_sesion (text) ✅ (rehidratación)
+
+entrega_ejercicio (versionado de artefactos)
+
+id
+
+ejercicio_estudiante_id
+
+version (int)
+
+artefacto_tipo (CODE, PDF, TEXT, LINK, etc.)
+
+storage_key (si corresponde)
+
+content_text (si es código/texto pequeño)
+
+created_at
+
+created_by (STUDENT, AI_ASSISTED)
+
+3) Modelo de eventos SR para trazabilidad IA (Event Sourcing “light”)
+
+En vez de guardar solo “prompt/respuesta”, guardás eventos. Esto te da auditoría perfecta y flexibilidad.
+
+ai_event
+
+id
+
+estudiante_id
+
+sesion_id
+
+ejercicio_id
+
+event_type (ENUM):
+
+PROMPT_SUBMITTED
+
+RAG_RETRIEVAL
+
+MODEL_RESPONSE
+
+CODE_SNAPSHOT
+
+EVAL_REQUESTED
+
+EVAL_RESULT
+
+RISK_FLAGGED
+
+HUMAN_FEEDBACK
+
+created_at
+
+payload JSONB ✅ (aquí vive todo)
+
+Payload recomendado por tipo
+
+PROMPT_SUBMITTED
+
+{
+  "prompt": "...",
+  "intent": "resolver_ejercicio",
+  "language": "es",
+  "client": "web"
+}
+
+
+RAG_RETRIEVAL
+
+{
+  "query": "...",
+  "top_k": 6,
+  "filters": { "unidad_id": 3, "doc_estado": "PUBLICADO" },
+  "results": [
+    { "chunk_id": 101, "score": 0.83, "doc_id": 55, "page_from": 4, "page_to": 5 },
+    { "chunk_id": 212, "score": 0.79, "doc_id": 56, "page_from": 1, "page_to": 1 }
+  ],
+  "confidence": 0.82
+}
+
+
+MODEL_RESPONSE
+
+{
+  "model": "gpt-…",
+  "answer": "...",
+  "citations": [101, 212],
+  "tokens_in": 1200,
+  "tokens_out": 500
+}
+
+
+CODE_SNAPSHOT
+
+{
+  "delivery_version": 3,
+  "diff_from_prev": "…",
+  "files": [{ "name": "main.py", "sha256": "…" }]
+}
+
+
+Esto hace que tu trazabilidad sea auditable y exportable.
+
+4) “Continuar los ejercicios pendientes” (mecánica exacta)
+
+Cuando el estudiante vuelve a la unidad/actividad:
+
+Consultás ejercicio_estudiante por actividad_id
+
+Ordenás por prioridad:
+
+EN_PROGRESO primero (por last_activity_at desc)
+
+luego NO_INICIADO
+
+luego finalizados
+
+Para el ejercicio seleccionado, rehidratás contexto con:
+
+HU + CA del ejercicio (siempre)
+
+última entrega (si existe)
+
+resumen de sesión anterior (si existe)
+
+últimas N interacciones IA relevantes (no todas)
+
+fuentes RAG “más usadas” de ese ejercicio (si existieron)
+
+Y listo: el alumno retoma exactamente donde quedó.
+
+5) Rehidratación de contexto: best practice (sin inflar tokens)
+
+Nunca metas el log completo al prompt. Hacé 3 niveles:
+
+Nivel A: Contexto fijo (siempre)
+
+Historia de usuario
+
+Criterios de aceptación
+
+Restricciones del ejercicio (dificultad, unidad, contenidos)
+
+Nivel B: Estado del estudiante (compacto)
+
+última versión de entrega (o resumen de cambios)
+
+errores previos
+
+“qué falta” según evaluación anterior
+
+Nivel C: Memoria resumida
+
+resumen_sesion (texto corto, 8–12 líneas)
+
+últimas 3–5 interacciones relevantes (extractadas)
+
+top fuentes RAG previas (ids + pages)
+
+Cómo generar el resumen_sesion
+
+al cerrar sesión: un “summarizer” IA resume:
+
+progreso
+
+decisiones clave
+
+dudas pendientes
+
+próximos pasos
+
+Ese resumen es el puente perfecto “día 1 → día 2”.
+
+6) RAG curricular: reglas que te convienen sí o sí
+6.1 Scope y filtros
+
+Por defecto:
+
+unidad_id = unidad actual
+
+estado = PUBLICADO
+
+si hay ENUNCIADO, priorizarlo (boost)
+
+6.2 “Gating” por confianza
+
+Si confidence < umbral (ej 0.65):
+
+no inventar
+
+pedir aclaración
+
+sugerir revisar material
+
+registrar RISK_FLAGGED
+
+6.3 Citas obligatorias
+
+Toda respuesta que use retrieval debe:
+
+guardar chunk_ids en ai_event
+
+mostrar referencia interna (aunque el alumno no la vea siempre)
+
+Esto te permite auditoría real.
+
+7) Flujo de evaluación (IA + rúbrica)
+
+Cuando el alumno marca “Entregar”:
+
+se crea entrega_ejercicio (version+1)
+
+se dispara EVAL_REQUESTED
+
+el evaluador IA:
+
+valida contra CA
+
+puntúa rúbrica
+
+genera feedback accionable
+
+se guarda EVAL_RESULT con:
+
+score por criterio
+
+comentarios
+
+checklist de CA (pass/fail)
+
+se actualiza ejercicio_estudiante.estado:
+
+FINALIZADO si cumple
+
+REENVIO si no cumple
+
+8) Endpoints clave (para tu backend FastAPI)
+
+Docente:
+
+CRUD Materia/Unidad/Actividad/Ejercicio
+
+POST /unidades/{id}/documentos/enunciado
+
+POST /unidades/{id}/documentos/material
+
+POST /ejercicios/{id}/hu-ca-rubrica
+
+Estudiante:
+
+GET /actividades/{id}/progreso ← devuelve lista de ejercicios con estado
+
+POST /ejercicios/{id}/start ← crea/actualiza ejercicio_estudiante + sesión
+
+POST /ejercicios/{id}/prompt ← crea ai_event + retrieval + response
+
+POST /ejercicios/{id}/entregas ← versiona entrega
+
+POST /ejercicios/{id}/evaluar ← eval IA y guarda
+
+9) Qué te deja este diseño (resultado real)
+
+Con esto conseguís:
+
+Continuidad perfecta de ejercicios pendientes (sin hacks)
+
+RAG “limpio” por unidad con versionado de fuentes
+
+Auditoría completa (qué preguntó, qué respondió, qué fuentes usó)
+
+Evaluación por ejercicio con rúbrica y criterios de aceptación
+
+Escalabilidad (miles de estudiantes) porque el estado está atomizado
+
+Si querés, el siguiente paso te lo dejo copiar/pegar en 3 entregables listos para implementar:
+
+SQL DDL completo (incluyendo pgvector + índices HNSW/IVFFLAT)
+
+Modelos SQLAlchemy + Alembic
+
+Pipeline de ingesta PDF → chunks → embeddings (con colas y reindexado por versión)
+
+Decime cuál de esos 3 querés primero y lo genero completo.
+
+quiero los 3
+
+Perfecto. Te dejo los 3 entregables completos (1) SQL DDL con pgvector + índices, (2) modelos SQLAlchemy + Alembic, (3) pipeline de ingesta PDF → chunks → embeddings con versionado y reindex.
+
+1) SQL DDL completo (PostgreSQL + pgvector + RAG + trazabilidad)
+
+Incluye: catálogo académico, documentos por unidad, ingesta/versionado, chunks con embeddings, progreso/entregas, eventos IA.
+Asumo PostgreSQL 14+ y extensión vector.
+
+-- ==========================================
+--  EXTENSIONES
+-- ==========================================
+CREATE EXTENSION IF NOT EXISTS vector;   -- pgvector
+CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
+
+-- ==========================================
+--  ENUMS
+-- ==========================================
+DO $$ BEGIN
+  CREATE TYPE doc_tipo AS ENUM ('ENUNCIADO', 'MATERIAL');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE doc_estado AS ENUM ('BORRADOR', 'PUBLICADO', 'ARCHIVADO');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE ingesta_status AS ENUM ('PENDING', 'OK', 'ERROR');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE ejercicio_estado AS ENUM ('NO_INICIADO', 'EN_PROGRESO', 'FINALIZADO', 'REENVIO', 'VALIDADO');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE artefacto_tipo AS ENUM ('CODE', 'TEXT', 'FILE', 'LINK');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE rubrica_estado AS ENUM ('BORRADOR', 'PUBLICADA', 'ARCHIVADA');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE ai_event_type AS ENUM (
+    'PROMPT_SUBMITTED',
+    'RAG_RETRIEVAL',
+    'MODEL_RESPONSE',
+    'CODE_SNAPSHOT',
+    'EVAL_REQUESTED',
+    'EVAL_RESULT',
+    'RISK_FLAGGED',
+    'HUMAN_FEEDBACK'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ==========================================
+--  CATALOGO ACADEMICO
+-- ==========================================
+CREATE TABLE IF NOT EXISTS materia (
+  id            BIGSERIAL PRIMARY KEY,
+  nombre        TEXT NOT NULL,
+  codigo        TEXT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS unidad (
+  id            BIGSERIAL PRIMARY KEY,
+  materia_id    BIGINT NOT NULL REFERENCES materia(id) ON DELETE CASCADE,
+  nombre        TEXT NOT NULL,
+  nro           INT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (materia_id, nro)
+);
+CREATE INDEX IF NOT EXISTS idx_unidad_materia ON unidad(materia_id);
+
+CREATE TABLE IF NOT EXISTS actividad (
+  id            BIGSERIAL PRIMARY KEY,
+  unidad_id     BIGINT NOT NULL REFERENCES unidad(id) ON DELETE CASCADE,
+  nombre        TEXT NOT NULL,
+  orden         INT NOT NULL DEFAULT 1,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_actividad_unidad ON actividad(unidad_id);
+
+CREATE TABLE IF NOT EXISTS ejercicio (
+  id            BIGSERIAL PRIMARY KEY,
+  actividad_id  BIGINT NOT NULL REFERENCES actividad(id) ON DELETE CASCADE,
+  titulo        TEXT NOT NULL,
+  dificultad    INT NOT NULL DEFAULT 1, -- 1..5
+  tags          TEXT[] NULL,
+  orden         INT NOT NULL DEFAULT 1,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ejercicio_actividad ON ejercicio(actividad_id);
+CREATE INDEX IF NOT EXISTS idx_ejercicio_orden ON ejercicio(actividad_id, orden);
+
+-- Historia de usuario (1:1)
+CREATE TABLE IF NOT EXISTS ejercicio_hu (
+  ejercicio_id  BIGINT PRIMARY KEY REFERENCES ejercicio(id) ON DELETE CASCADE,
+  hu_text       TEXT NOT NULL
+);
+
+-- Criterios de aceptación (1:N)
+CREATE TABLE IF NOT EXISTS ejercicio_ca (
+  id            BIGSERIAL PRIMARY KEY,
+  ejercicio_id  BIGINT NOT NULL REFERENCES ejercicio(id) ON DELETE CASCADE,
+  ca_text       TEXT NOT NULL,
+  orden         INT NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_ejercicio_ca_ej ON ejercicio_ca(ejercicio_id, orden);
+
+-- Rúbrica versionada por ejercicio
+CREATE TABLE IF NOT EXISTS ejercicio_rubrica (
+  id            BIGSERIAL PRIMARY KEY,
+  ejercicio_id  BIGINT NOT NULL REFERENCES ejercicio(id) ON DELETE CASCADE,
+  version       INT NOT NULL DEFAULT 1,
+  estado        rubrica_estado NOT NULL DEFAULT 'PUBLICADA',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (ejercicio_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS rubrica_item (
+  id            BIGSERIAL PRIMARY KEY,
+  rubrica_id    BIGINT NOT NULL REFERENCES ejercicio_rubrica(id) ON DELETE CASCADE,
+  criterio      TEXT NOT NULL,
+  peso          NUMERIC(6,3) NOT NULL DEFAULT 1.0,
+  orden         INT NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_rubrica_item_rub ON rubrica_item(rubrica_id, orden);
+
+CREATE TABLE IF NOT EXISTS rubrica_nivel (
+  id            BIGSERIAL PRIMARY KEY,
+  rubrica_item_id BIGINT NOT NULL REFERENCES rubrica_item(id) ON DELETE CASCADE,
+  nivel         INT NOT NULL, -- 1..4
+  descriptor    TEXT NOT NULL,
+  UNIQUE (rubrica_item_id, nivel)
+);
+
+-- ==========================================
+--  DOCUMENTOS POR UNIDAD (maestro-detalle)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS unidad_documento (
+  id            BIGSERIAL PRIMARY KEY,
+  unidad_id     BIGINT NOT NULL REFERENCES unidad(id) ON DELETE CASCADE,
+  tipo          doc_tipo NOT NULL,
+  titulo        TEXT NOT NULL,
+
+  storage_key   TEXT NOT NULL,
+  sha256        TEXT NOT NULL,
+  size_bytes    BIGINT NOT NULL,
+  mime          TEXT NOT NULL DEFAULT 'application/pdf',
+
+  orden         INT NOT NULL DEFAULT 1,
+  estado        doc_estado NOT NULL DEFAULT 'PUBLICADO',
+
+  created_by    TEXT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_unidoc_unidad ON unidad_documento(unidad_id);
+CREATE INDEX IF NOT EXISTS idx_unidoc_unidad_tipo ON unidad_documento(unidad_id, tipo, estado);
+CREATE INDEX IF NOT EXISTS idx_unidoc_unidad_orden ON unidad_documento(unidad_id, orden);
+
+-- Solo 1 ENUNCIADO vigente por unidad
+CREATE UNIQUE INDEX IF NOT EXISTS uq_unidoc_enunciado_vigente
+ON unidad_documento(unidad_id)
+WHERE (tipo='ENUNCIADO' AND estado <> 'ARCHIVADO');
+
+-- Deduplicación por unidad/tipo (opcional)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_unidoc_sha_vigente
+ON unidad_documento(unidad_id, tipo, sha256)
+WHERE (estado <> 'ARCHIVADO');
+
+-- ==========================================
+--  RAG: INGESTA / CHUNKS / EMBEDDINGS (versionado)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS documento_ingesta (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  unidad_documento_id BIGINT NOT NULL REFERENCES unidad_documento(id) ON DELETE CASCADE,
+  version           INT NOT NULL DEFAULT 1,
+  status            ingesta_status NOT NULL DEFAULT 'PENDING',
+  parser            TEXT NULL,
+  text_hash         TEXT NULL,
+  error_msg         TEXT NULL,
+  started_at        TIMESTAMPTZ NULL,
+  finished_at       TIMESTAMPTZ NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (unidad_documento_id, version)
+);
+
+-- Ajustá la dimensión de embedding según tu modelo (ej: 1536/3072)
+-- Importante: si cambiás de modelo/dimensión, conviene versionar "embedding_model" y/o tener otra tabla.
+CREATE TABLE IF NOT EXISTS documento_chunk (
+  id                BIGSERIAL PRIMARY KEY,
+  unidad_id          BIGINT NOT NULL REFERENCES unidad(id) ON DELETE CASCADE,
+  unidad_documento_id BIGINT NOT NULL REFERENCES unidad_documento(id) ON DELETE CASCADE,
+  ingesta_id         UUID NOT NULL REFERENCES documento_ingesta(id) ON DELETE CASCADE,
+
+  chunk_index        INT NOT NULL,
+  page_from          INT NULL,
+  page_to            INT NULL,
+  token_count        INT NULL,
+
+  content_text       TEXT NOT NULL,
+  embedding          vector(1536) NOT NULL,  -- <--- ajustá aquí
+
+  metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (ingesta_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunk_unidad ON documento_chunk(unidad_id);
+CREATE INDEX IF NOT EXISTS idx_chunk_doc ON documento_chunk(unidad_documento_id);
+CREATE INDEX IF NOT EXISTS idx_chunk_ingesta ON documento_chunk(ingesta_id);
+
+-- Índice vectorial (elegí UNO)
+-- Opción A: HNSW (mejor calidad/latencia; requiere pgvector con soporte)
+CREATE INDEX IF NOT EXISTS idx_chunk_embedding_hnsw
+ON documento_chunk USING hnsw (embedding vector_cosine_ops);
+
+-- Opción B: IVFFLAT (requiere ANALYZE; bueno en volúmenes grandes)
+-- CREATE INDEX IF NOT EXISTS idx_chunk_embedding_ivf
+-- ON documento_chunk USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- ==========================================
+--  ESTUDIANTE / PROGRESO / SESIONES / ENTREGAS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS estudiante (
+  id            BIGSERIAL PRIMARY KEY,
+  nombre        TEXT NOT NULL,
+  email         TEXT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sesion_trabajo (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  estudiante_id BIGINT NOT NULL REFERENCES estudiante(id) ON DELETE CASCADE,
+  unidad_id     BIGINT NOT NULL REFERENCES unidad(id) ON DELETE CASCADE,
+  actividad_id  BIGINT NULL REFERENCES actividad(id) ON DELETE SET NULL,
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at      TIMESTAMPTZ NULL,
+  resumen_sesion TEXT NULL,
+  device_info   JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_sesion_estudiante ON sesion_trabajo(estudiante_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sesion_unidad ON sesion_trabajo(unidad_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS ejercicio_estudiante (
+  id              BIGSERIAL PRIMARY KEY,
+  estudiante_id   BIGINT NOT NULL REFERENCES estudiante(id) ON DELETE CASCADE,
+  ejercicio_id    BIGINT NOT NULL REFERENCES ejercicio(id) ON DELETE CASCADE,
+  estado          ejercicio_estado NOT NULL DEFAULT 'NO_INICIADO',
+  intentos        INT NOT NULL DEFAULT 0,
+  score_actual    NUMERIC(6,2) NULL,
+  started_at      TIMESTAMPTZ NULL,
+  last_activity_at TIMESTAMPTZ NULL,
+  completed_at    TIMESTAMPTZ NULL,
+  last_session_id UUID NULL REFERENCES sesion_trabajo(id) ON DELETE SET NULL,
+  UNIQUE (estudiante_id, ejercicio_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ej_estudiante ON ejercicio_estudiante(estudiante_id);
+CREATE INDEX IF NOT EXISTS idx_ej_estado ON ejercicio_estudiante(estudiante_id, estado);
+
+CREATE TABLE IF NOT EXISTS entrega_ejercicio (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ejercicio_estudiante_id BIGINT NOT NULL REFERENCES ejercicio_estudiante(id) ON DELETE CASCADE,
+  version               INT NOT NULL DEFAULT 1,
+  artefacto_tipo        artefacto_tipo NOT NULL,
+  storage_key           TEXT NULL,
+  content_text          TEXT NULL,
+  sha256                TEXT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by            TEXT NOT NULL DEFAULT 'STUDENT',
+  UNIQUE (ejercicio_estudiante_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_entrega_ej ON entrega_ejercicio(ejercicio_estudiante_id, created_at DESC);
+
+-- ==========================================
+--  EVENTOS IA (trazabilidad)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS ai_event (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  estudiante_id BIGINT NOT NULL REFERENCES estudiante(id) ON DELETE CASCADE,
+  sesion_id     UUID NOT NULL REFERENCES sesion_trabajo(id) ON DELETE CASCADE,
+  ejercicio_id  BIGINT NOT NULL REFERENCES ejercicio(id) ON DELETE CASCADE,
+  event_type    ai_event_type NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payload       JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_event_est_ses ON ai_event(estudiante_id, sesion_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_event_ej ON ai_event(ejercicio_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_event_type ON ai_event(event_type);
+
+-- ==========================================
+--  updated_at trigger
+-- ==========================================
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_unidoc_updated_at ON unidad_documento;
+CREATE TRIGGER trg_unidoc_updated_at
+BEFORE UPDATE ON unidad_documento
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+2) Modelos SQLAlchemy + Alembic (migración lista)
+2.1 models.py (SQLAlchemy 2.0 style)
+
+Notas:
+
+Para Vector, uso pgvector.sqlalchemy (instalás pgvector en Python).
+
+Si tu embedding no es 1536, cambiás la dimensión en un solo lugar.
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import datetime
+from typing import Optional, List, Any, Dict
+
+from sqlalchemy import (
+    BigInteger, Integer, Text, String, DateTime, ForeignKey, Numeric, Boolean,
+    UniqueConstraint, Index, JSON, Enum
+)
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
+
+from pgvector.sqlalchemy import Vector
+
+
+EMBED_DIM = 1536
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# ---------- Enums ----------
+class DocTipo(str, enum.Enum):
+    ENUNCIADO = "ENUNCIADO"
+    MATERIAL = "MATERIAL"
+
+
+class DocEstado(str, enum.Enum):
+    BORRADOR = "BORRADOR"
+    PUBLICADO = "PUBLICADO"
+    ARCHIVADO = "ARCHIVADO"
+
+
+class IngestaStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    OK = "OK"
+    ERROR = "ERROR"
+
+
+class EjercicioEstado(str, enum.Enum):
+    NO_INICIADO = "NO_INICIADO"
+    EN_PROGRESO = "EN_PROGRESO"
+    FINALIZADO = "FINALIZADO"
+    REENVIO = "REENVIO"
+    VALIDADO = "VALIDADO"
+
+
+class ArtefactoTipo(str, enum.Enum):
+    CODE = "CODE"
+    TEXT = "TEXT"
+    FILE = "FILE"
+    LINK = "LINK"
+
+
+class RubricaEstado(str, enum.Enum):
+    BORRADOR = "BORRADOR"
+    PUBLICADA = "PUBLICADA"
+    ARCHIVADA = "ARCHIVADA"
+
+
+class AIEventType(str, enum.Enum):
+    PROMPT_SUBMITTED = "PROMPT_SUBMITTED"
+    RAG_RETRIEVAL = "RAG_RETRIEVAL"
+    MODEL_RESPONSE = "MODEL_RESPONSE"
+    CODE_SNAPSHOT = "CODE_SNAPSHOT"
+    EVAL_REQUESTED = "EVAL_REQUESTED"
+    EVAL_RESULT = "EVAL_RESULT"
+    RISK_FLAGGED = "RISK_FLAGGED"
+    HUMAN_FEEDBACK = "HUMAN_FEEDBACK"
+
+
+# ---------- Catálogo ----------
+class Materia(Base):
+    __tablename__ = "materia"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    codigo: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    unidades: Mapped[List["Unidad"]] = relationship(back_populates="materia", cascade="all, delete-orphan")
+
+
+class Unidad(Base):
+    __tablename__ = "unidad"
+    __table_args__ = (
+        UniqueConstraint("materia_id", "nro", name="uq_unidad_materia_nro"),
+        Index("idx_unidad_materia", "materia_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    materia_id: Mapped[int] = mapped_column(ForeignKey("materia.id", ondelete="CASCADE"), nullable=False)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    nro: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    materia: Mapped["Materia"] = relationship(back_populates="unidades")
+    actividades: Mapped[List["Actividad"]] = relationship(back_populates="unidad", cascade="all, delete-orphan")
+    documentos: Mapped[List["UnidadDocumento"]] = relationship(back_populates="unidad", cascade="all, delete-orphan")
+
+
+class Actividad(Base):
+    __tablename__ = "actividad"
+    __table_args__ = (Index("idx_actividad_unidad", "unidad_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidad.id", ondelete="CASCADE"), nullable=False)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    orden: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    unidad: Mapped["Unidad"] = relationship(back_populates="actividades")
+    ejercicios: Mapped[List["Ejercicio"]] = relationship(back_populates="actividad", cascade="all, delete-orphan")
+
+
+class Ejercicio(Base):
+    __tablename__ = "ejercicio"
+    __table_args__ = (
+        Index("idx_ejercicio_actividad", "actividad_id"),
+        Index("idx_ejercicio_orden", "actividad_id", "orden"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    actividad_id: Mapped[int] = mapped_column(ForeignKey("actividad.id", ondelete="CASCADE"), nullable=False)
+    titulo: Mapped[str] = mapped_column(Text, nullable=False)
+    dificultad: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))
+    orden: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    actividad: Mapped["Actividad"] = relationship(back_populates="ejercicios")
+    hu: Mapped[Optional["EjercicioHU"]] = relationship(back_populates="ejercicio", cascade="all, delete-orphan", uselist=False)
+    cas: Mapped[List["EjercicioCA"]] = relationship(back_populates="ejercicio", cascade="all, delete-orphan")
+
+
+class EjercicioHU(Base):
+    __tablename__ = "ejercicio_hu"
+
+    ejercicio_id: Mapped[int] = mapped_column(ForeignKey("ejercicio.id", ondelete="CASCADE"), primary_key=True)
+    hu_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    ejercicio: Mapped["Ejercicio"] = relationship(back_populates="hu")
+
+
+class EjercicioCA(Base):
+    __tablename__ = "ejercicio_ca"
+    __table_args__ = (Index("idx_ejercicio_ca_ej", "ejercicio_id", "orden"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ejercicio_id: Mapped[int] = mapped_column(ForeignKey("ejercicio.id", ondelete="CASCADE"), nullable=False)
+    ca_text: Mapped[str] = mapped_column(Text, nullable=False)
+    orden: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    ejercicio: Mapped["Ejercicio"] = relationship(back_populates="cas")
+
+
+class EjercicioRubrica(Base):
+    __tablename__ = "ejercicio_rubrica"
+    __table_args__ = (UniqueConstraint("ejercicio_id", "version", name="uq_rubrica_ej_version"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ejercicio_id: Mapped[int] = mapped_column(ForeignKey("ejercicio.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    estado: Mapped[RubricaEstado] = mapped_column(Enum(RubricaEstado), default=RubricaEstado.PUBLICADA, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    items: Mapped[List["RubricaItem"]] = relationship(back_populates="rubrica", cascade="all, delete-orphan")
+
+
+class RubricaItem(Base):
+    __tablename__ = "rubrica_item"
+    __table_args__ = (Index("idx_rubrica_item_rub", "rubrica_id", "orden"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rubrica_id: Mapped[int] = mapped_column(ForeignKey("ejercicio_rubrica.id", ondelete="CASCADE"), nullable=False)
+    criterio: Mapped[str] = mapped_column(Text, nullable=False)
+    peso: Mapped[float] = mapped_column(Numeric(6, 3), default=1.0, nullable=False)
+    orden: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    rubrica: Mapped["EjercicioRubrica"] = relationship(back_populates="items")
+    niveles: Mapped[List["RubricaNivel"]] = relationship(back_populates="item", cascade="all, delete-orphan")
+
+
+class RubricaNivel(Base):
+    __tablename__ = "rubrica_nivel"
+    __table_args__ = (UniqueConstraint("rubrica_item_id", "nivel", name="uq_rubrica_nivel"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    rubrica_item_id: Mapped[int] = mapped_column(ForeignKey("rubrica_item.id", ondelete="CASCADE"), nullable=False)
+    nivel: Mapped[int] = mapped_column(Integer, nullable=False)
+    descriptor: Mapped[str] = mapped_column(Text, nullable=False)
+
+    item: Mapped["RubricaItem"] = relationship(back_populates="niveles")
+
+
+# ---------- Documentos + RAG ----------
+class UnidadDocumento(Base):
+    __tablename__ = "unidad_documento"
+    __table_args__ = (
+        Index("idx_unidoc_unidad", "unidad_id"),
+        Index("idx_unidoc_unidad_tipo", "unidad_id", "tipo", "estado"),
+        Index("idx_unidoc_unidad_orden", "unidad_id", "orden"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidad.id", ondelete="CASCADE"), nullable=False)
+    tipo: Mapped[DocTipo] = mapped_column(Enum(DocTipo), nullable=False)
+    titulo: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    mime: Mapped[str] = mapped_column(Text, default="application/pdf", nullable=False)
+    orden: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    estado: Mapped[DocEstado] = mapped_column(Enum(DocEstado), default=DocEstado.PUBLICADO, nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    unidad: Mapped["Unidad"] = relationship(back_populates="documentos")
+    ingestas: Mapped[List["DocumentoIngesta"]] = relationship(back_populates="unidad_documento", cascade="all, delete-orphan")
+
+
+class DocumentoIngesta(Base):
+    __tablename__ = "documento_ingesta"
+    __table_args__ = (UniqueConstraint("unidad_documento_id", "version", name="uq_ingesta_doc_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unidad_documento_id: Mapped[int] = mapped_column(ForeignKey("unidad_documento.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    status: Mapped[IngestaStatus] = mapped_column(Enum(IngestaStatus), default=IngestaStatus.PENDING, nullable=False)
+    parser: Mapped[Optional[str]] = mapped_column(Text)
+    text_hash: Mapped[Optional[str]] = mapped_column(Text)
+    error_msg: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    unidad_documento: Mapped["UnidadDocumento"] = relationship(back_populates="ingestas")
+    chunks: Mapped[List["DocumentoChunk"]] = relationship(back_populates="ingesta", cascade="all, delete-orphan")
+
+
+class DocumentoChunk(Base):
+    __tablename__ = "documento_chunk"
+    __table_args__ = (
+        UniqueConstraint("ingesta_id", "chunk_index", name="uq_chunk_ingesta_idx"),
+        Index("idx_chunk_unidad", "unidad_id"),
+        Index("idx_chunk_doc", "unidad_documento_id"),
+        Index("idx_chunk_ingesta", "ingesta_id"),
+        # Índice HNSW se crea por migración con DDL raw (más abajo)
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidad.id", ondelete="CASCADE"), nullable=False)
+    unidad_documento_id: Mapped[int] = mapped_column(ForeignKey("unidad_documento.id", ondelete="CASCADE"), nullable=False)
+    ingesta_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documento_ingesta.id", ondelete="CASCADE"), nullable=False)
+
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_from: Mapped[Optional[int]] = mapped_column(Integer)
+    page_to: Mapped[Optional[int]] = mapped_column(Integer)
+    token_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBED_DIM), nullable=False)
+
+    metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    ingesta: Mapped["DocumentoIngesta"] = relationship(back_populates="chunks")
+
+
+# ---------- Estudiante / Progreso / IA ----------
+class Estudiante(Base):
+    __tablename__ = "estudiante"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class SesionTrabajo(Base):
+    __tablename__ = "sesion_trabajo"
+    __table_args__ = (
+        Index("idx_sesion_estudiante", "estudiante_id", "started_at"),
+        Index("idx_sesion_unidad", "unidad_id", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    estudiante_id: Mapped[int] = mapped_column(ForeignKey("estudiante.id", ondelete="CASCADE"), nullable=False)
+    unidad_id: Mapped[int] = mapped_column(ForeignKey("unidad.id", ondelete="CASCADE"), nullable=False)
+    actividad_id: Mapped[Optional[int]] = mapped_column(ForeignKey("actividad.id", ondelete="SET NULL"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resumen_sesion: Mapped[Optional[str]] = mapped_column(Text)
+    device_info: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class EjercicioEstudiante(Base):
+    __tablename__ = "ejercicio_estudiante"
+    __table_args__ = (
+        UniqueConstraint("estudiante_id", "ejercicio_id", name="uq_ej_est"),
+        Index("idx_ej_estudiante", "estudiante_id"),
+        Index("idx_ej_estado", "estudiante_id", "estado"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    estudiante_id: Mapped[int] = mapped_column(ForeignKey("estudiante.id", ondelete="CASCADE"), nullable=False)
+    ejercicio_id: Mapped[int] = mapped_column(ForeignKey("ejercicio.id", ondelete="CASCADE"), nullable=False)
+    estado: Mapped[EjercicioEstado] = mapped_column(Enum(EjercicioEstado), default=EjercicioEstado.NO_INICIADO, nullable=False)
+    intentos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    score_actual: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sesion_trabajo.id", ondelete="SET NULL"))
+
+
+class EntregaEjercicio(Base):
+    __tablename__ = "entrega_ejercicio"
+    __table_args__ = (
+        UniqueConstraint("ejercicio_estudiante_id", "version", name="uq_entrega_version"),
+        Index("idx_entrega_ej", "ejercicio_estudiante_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ejercicio_estudiante_id: Mapped[int] = mapped_column(ForeignKey("ejercicio_estudiante.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    artefacto_tipo: Mapped[ArtefactoTipo] = mapped_column(Enum(ArtefactoTipo), nullable=False)
+    storage_key: Mapped[Optional[str]] = mapped_column(Text)
+    content_text: Mapped[Optional[str]] = mapped_column(Text)
+    sha256: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_by: Mapped[str] = mapped_column(Text, default="STUDENT", nullable=False)
+
+
+class AIEvent(Base):
+    __tablename__ = "ai_event"
+    __table_args__ = (
+        Index("idx_ai_event_est_ses", "estudiante_id", "sesion_id", "created_at"),
+        Index("idx_ai_event_ej", "ejercicio_id", "created_at"),
+        Index("idx_ai_event_type", "event_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    estudiante_id: Mapped[int] = mapped_column(ForeignKey("estudiante.id", ondelete="CASCADE"), nullable=False)
+    sesion_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sesion_trabajo.id", ondelete="CASCADE"), nullable=False)
+    ejercicio_id: Mapped[int] = mapped_column(ForeignKey("ejercicio.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[AIEventType] = mapped_column(Enum(AIEventType), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+2.2 Alembic migration (incluye índice HNSW y enums)
+
+Alembic no siempre crea bien el índice HNSW con helpers, por eso lo pongo como op.execute().
+
+alembic/versions/0001_initial.py:
+
+from alembic import op
+import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
+
+# revision identifiers, used by Alembic.
+revision = "0001_initial"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+EMBED_DIM = 1536
+
+def upgrade():
+    # Extensiones
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+
+    # Enums (SQL raw para que sea idéntico al DDL)
+    op.execute("DO $$ BEGIN CREATE TYPE doc_tipo AS ENUM ('ENUNCIADO','MATERIAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE doc_estado AS ENUM ('BORRADOR','PUBLICADO','ARCHIVADO'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE ingesta_status AS ENUM ('PENDING','OK','ERROR'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE ejercicio_estado AS ENUM ('NO_INICIADO','EN_PROGRESO','FINALIZADO','REENVIO','VALIDADO'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE artefacto_tipo AS ENUM ('CODE','TEXT','FILE','LINK'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE rubrica_estado AS ENUM ('BORRADOR','PUBLICADA','ARCHIVADA'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
+    op.execute("""
+      DO $$ BEGIN
+        CREATE TYPE ai_event_type AS ENUM (
+          'PROMPT_SUBMITTED','RAG_RETRIEVAL','MODEL_RESPONSE','CODE_SNAPSHOT',
+          'EVAL_REQUESTED','EVAL_RESULT','RISK_FLAGGED','HUMAN_FEEDBACK'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+
+    # (Por brevedad, podés generar automáticamente tablas con op.create_table,
+    #  pero lo más seguro es ejecutar el DDL completo si preferís exactitud.)
+    # Si querés, pegás aquí el DDL completo y listo:
+    # op.execute(""" ... DDL COMPLETO ... """)
+
+    # Ejemplo mínimo: crear tabla documento_chunk con embedding + índice HNSW
+    op.execute(f"""
+      CREATE TABLE IF NOT EXISTS documento_chunk (
+        id BIGSERIAL PRIMARY KEY,
+        unidad_id BIGINT NOT NULL,
+        unidad_documento_id BIGINT NOT NULL,
+        ingesta_id UUID NOT NULL,
+        chunk_index INT NOT NULL,
+        page_from INT NULL,
+        page_to INT NULL,
+        token_count INT NULL,
+        content_text TEXT NOT NULL,
+        embedding vector({EMBED_DIM}) NOT NULL,
+        metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    """)
+
+    op.execute("CREATE INDEX IF NOT EXISTS idx_chunk_embedding_hnsw ON documento_chunk USING hnsw (embedding vector_cosine_ops);")
+
+
+def downgrade():
+    # Si querés rollback completo, dropeás en orden inverso.
+    op.execute("DROP TABLE IF EXISTS documento_chunk;")
+    op.execute("DROP TYPE IF EXISTS ai_event_type;")
+    op.execute("DROP TYPE IF EXISTS rubrica_estado;")
+    op.execute("DROP TYPE IF EXISTS artefacto_tipo;")
+    op.execute("DROP TYPE IF EXISTS ejercicio_estado;")
+    op.execute("DROP TYPE IF EXISTS ingesta_status;")
+    op.execute("DROP TYPE IF EXISTS doc_estado;")
+    op.execute("DROP TYPE IF EXISTS doc_tipo;")
+
+
+En un proyecto real, te recomiendo:
+
+o bien ejecutar el DDL completo dentro de Alembic con op.execute(DDL),
+
+o generar todas las tablas con op.create_table.
+Si querés, te lo armo 100% con op.create_table (sin SQL raw), pero es más largo.
+
+3) Pipeline de ingesta PDF → chunks → embeddings (best practices)
+
+Esto es lo que te permite RAG serio:
+
+versionado de ingesta por documento
+
+chunking consistente
+
+metadatos ricos
+
+trazabilidad (chunk → doc → unidad → páginas)
+
+reindex cuando cambia el PDF
+
+3.1 Dependencias
+
+pymupdf (fitz) para extracción robusta
+
+tiktoken opcional (conteo tokens)
+
+pgvector + sqlalchemy
+
+tu proveedor de embeddings (lo abstraigo para que no quedes atado)
+
+3.2 Código: rag_ingest.py
+from __future__ import annotations
+
+import hashlib
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Optional, Dict, Any, Tuple, Protocol
+
+import fitz  # PyMuPDF
+
+from sqlalchemy import select, update, delete
+from sqlalchemy.orm import Session
+
+# Importá tus modelos:
+# from models import UnidadDocumento, DocumentoIngesta, DocumentoChunk, IngestaStatus
+# Aquí asumo esos nombres existen como en el bloque de SQLAlchemy.
+from models import UnidadDocumento, DocumentoIngesta, DocumentoChunk, IngestaStatus, EMBED_DIM
+
+
+# -----------------------------
+# Embeddings Provider (abstracción)
+# -----------------------------
+class EmbeddingsProvider(Protocol):
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        """Devuelve una lista de embeddings (len=texts) con dimensión fija EMBED_DIM."""
+        ...
+
+
+# -----------------------------
+# Chunking: reglas prácticas
+# -----------------------------
+@dataclass
+class ChunkConfig:
+    max_chars: int = 1200           # chunk por caracteres (simple y efectivo)
+    overlap_chars: int = 150        # solapamiento para continuidad
+    min_chars: int = 200            # evita chunks demasiado chicos
+    normalize_whitespace: bool = True
+
+
+def normalize_text(s: str) -> str:
+    s = s.replace("\x00", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def split_into_chunks(text: str, cfg: ChunkConfig) -> List[str]:
+    if cfg.normalize_whitespace:
+        text = normalize_text(text)
+
+    if len(text) <= cfg.max_chars:
+        return [text] if len(text) >= cfg.min_chars else []
+
+    chunks: List[str] = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + cfg.max_chars)
+        chunk = text[start:end].strip()
+
+        # Ajuste para cortar por final de frase si se puede
+        if end < len(text):
+            cut = chunk.rfind(". ")
+            if cut > cfg.min_chars:
+                chunk = chunk[:cut + 1].strip()
+                end = start + len(chunk)
+
+        if len(chunk) >= cfg.min_chars:
+            chunks.append(chunk)
+
+        start = max(0, end - cfg.overlap_chars)
+
+        if start >= len(text):
+            break
+
+    return chunks
+
+
+# -----------------------------
+# PDF Extraction
+# -----------------------------
+@dataclass
+class PageText:
+    page_num: int
+    text: str
+
+
+def extract_pdf_text_pages(pdf_bytes: bytes) -> List[PageText]:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    pages: List[PageText] = []
+    for i in range(doc.page_count):
+        page = doc.load_page(i)
+        text = page.get_text("text") or ""
+        pages.append(PageText(page_num=i + 1, text=text))
+    doc.close()
+    return pages
+
+
+def sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def sha256_text(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+# -----------------------------
+# Storage: lo abstraemos
+# -----------------------------
+class Storage(Protocol):
+    def read(self, storage_key: str) -> bytes:
+        ...
+
+
+# -----------------------------
+# Ingestión principal
+# -----------------------------
+def create_ingesta(session: Session, unidad_documento_id: int, parser: str) -> DocumentoIngesta:
+    # Version: 1 + max(version) existente
+    max_ver = session.execute(
+        select(DocumentoIngesta.version)
+        .where(DocumentoIngesta.unidad_documento_id == unidad_documento_id)
+        .order_by(DocumentoIngesta.version.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    next_ver = 1 if max_ver is None else (max_ver + 1)
+
+    ing = DocumentoIngesta(
+        unidad_documento_id=unidad_documento_id,
+        version=next_ver,
+        status=IngestaStatus.PENDING,
+        parser=parser,
+        started_at=datetime.utcnow()
+    )
+    session.add(ing)
+    session.flush()  # obtiene ing.id
+    return ing
+
+
+def ingest_unidad_documento(
+    session: Session,
+    storage: Storage,
+    embedder: EmbeddingsProvider,
+    unidad_documento_id: int,
+    chunk_cfg: ChunkConfig = ChunkConfig(),
+    parser_name: str = "pymupdf"
+) -> uuid.UUID:
+    # 1) Traer doc
+    doc: UnidadDocumento = session.get(UnidadDocumento, unidad_documento_id)
+    if not doc:
+        raise ValueError(f"UnidadDocumento {unidad_documento_id} no existe")
+
+    pdf_bytes = storage.read(doc.storage_key)
+    pdf_hash = sha256_bytes(pdf_bytes)
+
+    # 2) Crear ingesta versionada
+    ing = create_ingesta(session, unidad_documento_id=doc.id, parser=parser_name)
+    session.commit()  # persiste ingesta en PENDING
+
+    try:
+        # 3) Extraer texto por páginas
+        pages = extract_pdf_text_pages(pdf_bytes)
+        full_text = "\n\n".join([p.text for p in pages if p.text])
+
+        text_hash = sha256_text(full_text)
+
+        # 4) Chunking por página (mantiene page_from/to para citas)
+        chunk_records: List[Tuple[int, int, str]] = []
+        chunk_index = 0
+
+        for p in pages:
+            page_text = normalize_text(p.text)
+            if not page_text:
+                continue
+
+            page_chunks = split_into_chunks(page_text, chunk_cfg)
+            for ch in page_chunks:
+                chunk_records.append((p.page_num, p.page_num, ch))
+                chunk_index += 1
+
+        if not chunk_records:
+            raise RuntimeError("No se pudo extraer texto utilizable para chunks.")
+
+        # 5) Embeddings en batch (mejor práctica)
+        texts = [c[2] for c in chunk_records]
+        vectors = embedder.embed_texts(texts)
+
+        if len(vectors) != len(texts):
+            raise RuntimeError("El provider de embeddings no devolvió la misma cantidad de vectores.")
+
+        for v in vectors:
+            if len(v) != EMBED_DIM:
+                raise RuntimeError(f"Dimensión de embedding inválida: {len(v)} != {EMBED_DIM}")
+
+        # 6) Insert chunks
+        for idx, ((pf, pt, ch), vec) in enumerate(zip(chunk_records, vectors)):
+            chunk = DocumentoChunk(
+                unidad_id=doc.unidad_id,
+                unidad_documento_id=doc.id,
+                ingesta_id=ing.id,
+                chunk_index=idx,
+                page_from=pf,
+                page_to=pt,
+                token_count=None,
+                content_text=ch,
+                embedding=vec,
+                metadata={
+                    "doc_tipo": doc.tipo.value,
+                    "doc_estado": doc.estado.value,
+                    "doc_titulo": doc.titulo,
+                    "pdf_sha256": pdf_hash,
+                    "text_hash": text_hash
+                }
+            )
+            session.add(chunk)
+
+        # 7) Marcar ingesta OK
+        session.execute(
+            update(DocumentoIngesta)
+            .where(DocumentoIngesta.id == ing.id)
+            .values(status=IngestaStatus.OK, text_hash=text_hash, finished_at=datetime.utcnow(), error_msg=None)
+        )
+        session.commit()
+        return ing.id
+
+    except Exception as e:
+        session.execute(
+            update(DocumentoIngesta)
+            .where(DocumentoIngesta.id == ing.id)
+            .values(status=IngestaStatus.ERROR, error_msg=str(e), finished_at=datetime.utcnow())
+        )
+        session.commit()
+        raise
+
+
+# -----------------------------
+# Retrieval (consulta vectorial filtrada por unidad)
+# -----------------------------
+def retrieve(
+    session: Session,
+    embedder: EmbeddingsProvider,
+    unidad_id: int,
+    query: str,
+    top_k: int = 6,
+    only_published: bool = True,
+) -> List[Dict[str, Any]]:
+    qvec = embedder.embed_texts([query])[0]
+
+    # Nota: El filtro por "PUBLICADO" lo hacemos leyendo metadata o join a unidad_documento.
+    # Mejor práctica: join a unidad_documento para no depender de metadata.
+    stmt = (
+        select(
+            DocumentoChunk.id,
+            DocumentoChunk.content_text,
+            DocumentoChunk.page_from,
+            DocumentoChunk.page_to,
+            DocumentoChunk.unidad_documento_id,
+            # distancia coseno aproximada via <=> (pgvector)
+            (DocumentoChunk.embedding.cosine_distance(qvec)).label("distance"),
+        )
+        .where(DocumentoChunk.unidad_id == unidad_id)
+        .order_by(sa.text("distance ASC"))
+        .limit(top_k)
+    )
+
+    rows = session.execute(stmt).all()
+    return [
+        {
+            "chunk_id": r.id,
+            "text": r.content_text,
+            "page_from": r.page_from,
+            "page_to": r.page_to,
+            "unidad_documento_id": r.unidad_documento_id,
+            "distance": float(r.distance),
+        }
+        for r in rows
+    ]
+
+3.3 Provider de embeddings (ejemplo “dummy” + dónde enchufar el real)
+
+Para correr local sin depender de servicios externos, te dejo un dummy (NO sirve para producción). En producción, lo reemplazás por tu embedding real.
+
+import random
+from typing import List
+
+from models import EMBED_DIM
+
+class DummyEmbeddings:
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        # Solo para test. Reemplazar por provider real.
+        out = []
+        for t in texts:
+            rnd = random.Random(hash(t))
+            out.append([rnd.random() for _ in range(EMBED_DIM)])
+        return out
+
+3.4 “Reindex” cuando el docente reemplaza un PDF
+
+Best practice: NO borrás chunks históricos si querés auditoría completa. Hacés:
+
+unidad_documento.estado = ARCHIVADO (si corresponde)
+
+nueva fila unidad_documento (o mismo id con nueva sha y documento_ingesta.version+1)
+
+corrida de ingest_unidad_documento(...)
+
+retrieval por defecto usa solo documentos PUBLICADO y/o la última ingesta OK
+
+Si querés “limpiar” para ahorrar espacio: podés borrar chunks de ingestas ERROR o de docs ARCHIVADO con políticas.
+
+Qué te recomiendo como integración inmediata (sin inventar infra)
+
+Storage: MinIO (S3 compatible) para PDFs y entregas.
+
+Orquestación: n8n (vos ya venís con eso) disparando webhooks:
+
+“PDF subido” → POST /ingest/{unidad_documento_id}
+
+“enunciado reemplazado” → reingesta
+
+Backend: FastAPI (endpoints para docente/estudiante + ingest/retrieve)
+
+DB: Postgres + pgvector
+
+Si querés, en el próximo mensaje te doy el “paquete final” para que arranques a correr:
+
+endpoints FastAPI reales (no pseudo) para:
+
+subir PDF + crear unidad_documento
+
+disparar ingesta
+
+endpoint /rag/query con filtros por unidad + logging en ai_event
+
+y un ejemplo de “rehidratación de contexto” (HU+CA+última entrega+resumen+top chunks) listo para armar el prompt.
+
+que es MinIO
+
+MinIO es un servidor de almacenamiento de objetos (object storage) que vos podés instalar y operar en tu propia infraestructura (PC, VM, servidor, Kubernetes), y que expone una API compatible con Amazon S3.
+
+En criollo: es como tener “tu propio S3” dentro de tu proyecto.
+
+Qué problema te resuelve en tu sistema
+
+En tu caso vas a guardar cosas como:
+
+PDFs de enunciados y materiales por unidad
+
+entregas de estudiantes (código/archivos)
+
+evidencias (capturas, adjuntos, logs exportables)
+
+Eso no conviene guardarlo dentro de PostgreSQL como binario grande, porque:
+
+crece rápido,
+
+empeora backups,
+
+complica performance,
+
+y es más caro de operar.
+
+Con MinIO:
+
+Los archivos viven en un “bucket” (carpeta lógica).
+
+La base de datos guarda solo el storage_key (ruta/clave), tamaño y hash.
+
+Podés servirlos por URL segura, con permisos.
+
+Cómo se usa (concepto)
+
+Bucket: contenedor (ej. activia-docs)
+
+Object: archivo dentro del bucket (ej. unidades/3/enunciado/abc123.pdf)
+
+storage_key: la “ruta” del objeto (lo que guardás en DB)
+
+Por qué es ideal para RAG
+
+Porque tu pipeline de ingesta hace:
+
+subís PDF a MinIO
+
+guardás storage_key en DB
+
+el proceso de ingesta lee el PDF desde MinIO, extrae texto, hace chunks y embeddings
+
+guardás chunks + embeddings en Postgres/pgvector
+
+Y si el docente reemplaza un PDF, versionás el objeto y reingestás.
+
+Ventajas principales
+
+S3-compatible: si mañana querés pasar a AWS S3, casi no cambia tu código.
+
+Self-hosted: control total (útil en contexto universitario).
+
+Escalable: soporta grandes volúmenes.
+
+Permisos: podés generar links temporales (pre-signed URLs).
+
+Alternativas
+
+AWS S3 / Google Cloud Storage / Azure Blob (servicios cloud)
+
+filesystem local (solo para prototipo; luego se complica)
+
+Si querés, te paso un docker-compose.yml mínimo para levantar MinIO + Postgres + pgvector en tu máquina y probar la subida de PDFs.
+
+endpoints FastAPI reales (no pseudo) para:
+
+subir PDF + crear unidad_documento
+
+disparar ingesta
+
+endpoint /rag/query con filtros por unidad + logging en ai_event
+
+y un ejemplo de “rehidratación de contexto” (HU+CA+última entrega+resumen+top chunks) listo para armar el prompt.
+"""
+FastAPI endpoints reales (no pseudo) para:
+- Subir PDF + crear unidad_documento (MinIO + Postgres)
+- Disparar ingesta (PDF -> texto -> chunks -> embeddings -> pgvector)
+- /rag/query con filtro por unidad + logging en ai_event
+- Rehidratación de contexto (HU+CA+última entrega+resumen+top chunks) listo para armar prompt
+
+Stack:
+- FastAPI
+- SQLAlchemy 2.0
+- PostgreSQL + pgvector
+- MinIO (S3 compatible)
+- PyMuPDF (fitz) para extraer texto
+- pgvector.sqlalchemy para tipo Vector
+
+Instalación sugerida:
+pip install fastapi uvicorn sqlalchemy psycopg[binary] pgvector minio pymupdf pydantic
+
+Variables de entorno:
+DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/activia
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=activia
+MINIO_SECURE=false
+"""
+
+from __future__ import annotations
+
+import os
+import io
+import re
+import uuid
+import json
+import time
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple, Protocol, Literal
+
+import fitz  # PyMuPDF
+from minio import Minio
+from minio.error import S3Error
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from pydantic import BaseModel, Field
+
+import sqlalchemy as sa
+from sqlalchemy import select, update, func, text
+from sqlalchemy.orm import Session, sessionmaker
+
+from pgvector.sqlalchemy import Vector
+
+
+# =============================================================================
+# Config
+# =============================================================================
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "activia")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+EMBED_DIM = 1536  # ajustá si tu modelo usa otra dimensión
+
+
+# =============================================================================
+# DB (SQLAlchemy)
+# =============================================================================
+
+engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+def get_db() -> Session:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+metadata = sa.MetaData()
+
+# --- Minimal subset of tables we need for endpoints ---
+# If ya tenés models.py, reemplazá esto por tus modelos ORM.
+# Acá uso SQLAlchemy Core para hacerlo self-contained.
+
+unidad_documento = sa.Table(
+    "unidad_documento",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("unidad_id", sa.BigInteger, nullable=False),
+    sa.Column("tipo", sa.Text, nullable=False),  # 'ENUNCIADO' | 'MATERIAL'
+    sa.Column("titulo", sa.Text, nullable=False),
+    sa.Column("storage_key", sa.Text, nullable=False),
+    sa.Column("sha256", sa.Text, nullable=False),
+    sa.Column("size_bytes", sa.BigInteger, nullable=False),
+    sa.Column("mime", sa.Text, nullable=False, server_default="application/pdf"),
+    sa.Column("orden", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("estado", sa.Text, nullable=False, server_default="PUBLICADO"),
+    sa.Column("created_by", sa.Text, nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
+
+documento_ingesta = sa.Table(
+    "documento_ingesta",
+    metadata,
+    sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column("unidad_documento_id", sa.BigInteger, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("status", sa.Text, nullable=False, server_default="PENDING"),
+    sa.Column("parser", sa.Text, nullable=True),
+    sa.Column("text_hash", sa.Text, nullable=True),
+    sa.Column("error_msg", sa.Text, nullable=True),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.UniqueConstraint("unidad_documento_id", "version", name="uq_ingesta_doc_version"),
+)
+
+documento_chunk = sa.Table(
+    "documento_chunk",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("unidad_id", sa.BigInteger, nullable=False),
+    sa.Column("unidad_documento_id", sa.BigInteger, nullable=False),
+    sa.Column("ingesta_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("chunk_index", sa.Integer, nullable=False),
+    sa.Column("page_from", sa.Integer, nullable=True),
+    sa.Column("page_to", sa.Integer, nullable=True),
+    sa.Column("token_count", sa.Integer, nullable=True),
+    sa.Column("content_text", sa.Text, nullable=False),
+    sa.Column("embedding", Vector(EMBED_DIM), nullable=False),
+    sa.Column("metadata", sa.dialects.postgresql.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.UniqueConstraint("ingesta_id", "chunk_index", name="uq_chunk_ingesta_idx"),
+)
+
+# Ejercicios (para rehidratación)
+ejercicio = sa.Table(
+    "ejercicio",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("actividad_id", sa.BigInteger, nullable=False),
+    sa.Column("titulo", sa.Text, nullable=False),
+)
+
+ejercicio_hu = sa.Table(
+    "ejercicio_hu",
+    metadata,
+    sa.Column("ejercicio_id", sa.BigInteger, primary_key=True),
+    sa.Column("hu_text", sa.Text, nullable=False),
+)
+
+ejercicio_ca = sa.Table(
+    "ejercicio_ca",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("ejercicio_id", sa.BigInteger, nullable=False),
+    sa.Column("ca_text", sa.Text, nullable=False),
+    sa.Column("orden", sa.Integer, nullable=False, server_default="1"),
+)
+
+estudiante = sa.Table(
+    "estudiante",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("nombre", sa.Text, nullable=False),
+)
+
+sesion_trabajo = sa.Table(
+    "sesion_trabajo",
+    metadata,
+    sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column("estudiante_id", sa.BigInteger, nullable=False),
+    sa.Column("unidad_id", sa.BigInteger, nullable=False),
+    sa.Column("actividad_id", sa.BigInteger, nullable=True),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("resumen_sesion", sa.Text, nullable=True),
+    sa.Column("device_info", sa.dialects.postgresql.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+)
+
+ejercicio_estudiante = sa.Table(
+    "ejercicio_estudiante",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("estudiante_id", sa.BigInteger, nullable=False),
+    sa.Column("ejercicio_id", sa.BigInteger, nullable=False),
+    sa.Column("estado", sa.Text, nullable=False, server_default="NO_INICIADO"),
+    sa.Column("intentos", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("last_session_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=True),
+    sa.Column("last_activity_at", sa.DateTime(timezone=True), nullable=True),
+    sa.UniqueConstraint("estudiante_id", "ejercicio_id", name="uq_ej_est"),
+)
+
+entrega_ejercicio = sa.Table(
+    "entrega_ejercicio",
+    metadata,
+    sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column("ejercicio_estudiante_id", sa.BigInteger, nullable=False),
+    sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+    sa.Column("artefacto_tipo", sa.Text, nullable=False),
+    sa.Column("storage_key", sa.Text, nullable=True),
+    sa.Column("content_text", sa.Text, nullable=True),
+    sa.Column("sha256", sa.Text, nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.UniqueConstraint("ejercicio_estudiante_id", "version", name="uq_entrega_version"),
+)
+
+ai_event = sa.Table(
+    "ai_event",
+    metadata,
+    sa.Column("id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column("estudiante_id", sa.BigInteger, nullable=False),
+    sa.Column("sesion_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("ejercicio_id", sa.BigInteger, nullable=False),
+    sa.Column("event_type", sa.Text, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column("payload", sa.dialects.postgresql.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+)
+
+
+# =============================================================================
+# MinIO client
+# =============================================================================
+
+minio_client = Minio(
+    MINIO_ENDPOINT,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
+    secure=MINIO_SECURE,
+)
+
+
+def ensure_bucket():
+    try:
+        if not minio_client.bucket_exists(MINIO_BUCKET):
+            minio_client.make_bucket(MINIO_BUCKET)
+    except S3Error as e:
+        raise RuntimeError(f"MinIO bucket error: {e}")
+
+
+def put_pdf_to_minio(storage_key: str, pdf_bytes: bytes) -> None:
+    ensure_bucket()
+    data = io.BytesIO(pdf_bytes)
+    minio_client.put_object(
+        bucket_name=MINIO_BUCKET,
+        object_name=storage_key,
+        data=data,
+        length=len(pdf_bytes),
+        content_type="application/pdf",
+    )
+
+
+def get_pdf_from_minio(storage_key: str) -> bytes:
+    ensure_bucket()
+    resp = minio_client.get_object(MINIO_BUCKET, storage_key)
+    try:
+        return resp.read()
+    finally:
+        resp.close()
+        resp.release_conn()
+
+
+# =============================================================================
+# Helpers: hashing, text, chunking
+# =============================================================================
+
+def sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def normalize_text(s: str) -> str:
+    s = s.replace("\x00", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+@dataclass
+class ChunkConfig:
+    max_chars: int = 1200
+    overlap_chars: int = 150
+    min_chars: int = 200
+
+
+def split_into_chunks(text: str, cfg: ChunkConfig) -> List[str]:
+    text = normalize_text(text)
+    if len(text) < cfg.min_chars:
+        return []
+    if len(text) <= cfg.max_chars:
+        return [text]
+
+    chunks: List[str] = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + cfg.max_chars)
+        chunk = text[start:end].strip()
+
+        # cortar cerca del final de oración
+        if end < len(text):
+            cut = chunk.rfind(". ")
+            if cut > cfg.min_chars:
+                chunk = chunk[:cut + 1].strip()
+                end = start + len(chunk)
+
+        if len(chunk) >= cfg.min_chars:
+            chunks.append(chunk)
+
+        start = max(0, end - cfg.overlap_chars)
+        if start >= len(text):
+            break
+
+    return chunks
+
+
+def extract_pdf_pages(pdf_bytes: bytes) -> List[Tuple[int, str]]:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    out: List[Tuple[int, str]] = []
+    try:
+        for i in range(doc.page_count):
+            page = doc.load_page(i)
+            txt = page.get_text("text") or ""
+            out.append((i + 1, txt))
+    finally:
+        doc.close()
+    return out
+
+
+# =============================================================================
+# Embeddings (provider real: reemplazá este stub)
+# =============================================================================
+
+class EmbeddingsProvider(Protocol):
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        ...
+
+
+class DummyEmbeddings:
+    """Para probar end-to-end sin proveedor externo. Reemplazar en producción."""
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        import random
+        out = []
+        for t in texts:
+            rnd = random.Random(hash(t))
+            out.append([rnd.random() for _ in range(EMBED_DIM)])
+        return out
+
+
+embedder: EmbeddingsProvider = DummyEmbeddings()
+
+
+# =============================================================================
+# RAG: ingesta versionada + retrieval
+# =============================================================================
+
+def create_ingesta(db: Session, unidad_documento_id: int, parser: str) -> uuid.UUID:
+    max_ver = db.execute(
+        select(documento_ingesta.c.version)
+        .where(documento_ingesta.c.unidad_documento_id == unidad_documento_id)
+        .order_by(documento_ingesta.c.version.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    next_ver = 1 if max_ver is None else (max_ver + 1)
+
+    ing_id = uuid.uuid4()
+    db.execute(
+        documento_ingesta.insert().values(
+            id=ing_id,
+            unidad_documento_id=unidad_documento_id,
+            version=next_ver,
+            status="PENDING",
+            parser=parser,
+            started_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+    return ing_id
+
+
+def ingest_documento(db: Session, unidad_documento_id: int, cfg: ChunkConfig = ChunkConfig()) -> uuid.UUID:
+    # Traer doc (para obtener unidad_id, storage_key, tipo, titulo)
+    row = db.execute(
+        select(
+            unidad_documento.c.id,
+            unidad_documento.c.unidad_id,
+            unidad_documento.c.storage_key,
+            unidad_documento.c.tipo,
+            unidad_documento.c.titulo,
+            unidad_documento.c.estado,
+        ).where(unidad_documento.c.id == unidad_documento_id)
+    ).mappings().one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="unidad_documento no existe")
+
+    pdf_bytes = get_pdf_from_minio(row["storage_key"])
+    pdf_hash = sha256_bytes(pdf_bytes)
+
+    ing_id = create_ingesta(db, unidad_documento_id=unidad_documento_id, parser="pymupdf")
+
+    try:
+        pages = extract_pdf_pages(pdf_bytes)
+
+        chunk_records: List[Tuple[int, int, str]] = []
+        for page_num, page_text in pages:
+            page_text = normalize_text(page_text)
+            if not page_text:
+                continue
+            for ch in split_into_chunks(page_text, cfg):
+                chunk_records.append((page_num, page_num, ch))
+
+        if not chunk_records:
+            raise RuntimeError("No se extrajo texto utilizable del PDF (chunks vacíos).")
+
+        vectors = embedder.embed_texts([c[2] for c in chunk_records])
+        if len(vectors) != len(chunk_records):
+            raise RuntimeError("Embeddings provider devolvió tamaño inconsistente.")
+        if any(len(v) != EMBED_DIM for v in vectors):
+            raise RuntimeError("Dimensión de embedding inválida.")
+
+        # Insert chunks
+        for idx, ((pf, pt, content), vec) in enumerate(zip(chunk_records, vectors)):
+            db.execute(
+                documento_chunk.insert().values(
+                    unidad_id=row["unidad_id"],
+                    unidad_documento_id=unidad_documento_id,
+                    ingesta_id=ing_id,
+                    chunk_index=idx,
+                    page_from=pf,
+                    page_to=pt,
+                    token_count=None,
+                    content_text=content,
+                    embedding=vec,
+                    metadata={
+                        "doc_tipo": row["tipo"],
+                        "doc_estado": row["estado"],
+                        "doc_titulo": row["titulo"],
+                        "pdf_sha256": pdf_hash,
+                    },
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+        db.execute(
+            documento_ingesta.update()
+            .where(documento_ingesta.c.id == ing_id)
+            .values(
+                status="OK",
+                finished_at=datetime.now(timezone.utc),
+                error_msg=None,
+            )
+        )
+        db.commit()
+        return ing_id
+
+    except Exception as e:
+        db.execute(
+            documento_ingesta.update()
+            .where(documento_ingesta.c.id == ing_id)
+            .values(
+                status="ERROR",
+                finished_at=datetime.now(timezone.utc),
+                error_msg=str(e),
+            )
+        )
+        db.commit()
+        raise
+
+
+def retrieve_chunks(db: Session, unidad_id: int, query: str, top_k: int = 6) -> List[Dict[str, Any]]:
+    qvec = embedder.embed_texts([query])[0]
+
+    # Nota: filtrado por unidad_id. Si querés excluir docs archivados, hacé JOIN a unidad_documento.
+    stmt = (
+        select(
+            documento_chunk.c.id.label("chunk_id"),
+            documento_chunk.c.unidad_documento_id,
+            documento_chunk.c.page_from,
+            documento_chunk.c.page_to,
+            documento_chunk.c.content_text,
+            (documento_chunk.c.embedding.cosine_distance(qvec)).label("distance"),
+        )
+        .where(documento_chunk.c.unidad_id == unidad_id)
+        .order_by(sa.text("distance ASC"))
+        .limit(top_k)
+    )
+    rows = db.execute(stmt).mappings().all()
+    return [
+        {
+            "chunk_id": r["chunk_id"],
+            "unidad_documento_id": r["unidad_documento_id"],
+            "page_from": r["page_from"],
+            "page_to": r["page_to"],
+            "text": r["content_text"],
+            "distance": float(r["distance"]),
+        }
+        for r in rows
+    ]
+
+
+# =============================================================================
+# Logging AI events
+# =============================================================================
+
+def log_ai_event(
+    db: Session,
+    *,
+    estudiante_id: int,
+    sesion_id: uuid.UUID,
+    ejercicio_id: int,
+    event_type: str,
+    payload: Dict[str, Any],
+) -> uuid.UUID:
+    ev_id = uuid.uuid4()
+    db.execute(
+        ai_event.insert().values(
+            id=ev_id,
+            estudiante_id=estudiante_id,
+            sesion_id=sesion_id,
+            ejercicio_id=ejercicio_id,
+            event_type=event_type,
+            created_at=datetime.now(timezone.utc),
+            payload=payload,
+        )
+    )
+    db.commit()
+    return ev_id
+
+
+# =============================================================================
+# Rehidratación de contexto (para armar prompt)
+# =============================================================================
+
+class RehydrateResponse(BaseModel):
+    ejercicio_id: int
+    hu: str
+    criterios_aceptacion: List[str]
+    ultima_entrega: Optional[Dict[str, Any]] = None
+    resumen_sesion: Optional[str] = None
+    rag_chunks: List[Dict[str, Any]] = Field(default_factory=list)
+    prompt_context: str
+
+
+def rehydrate_context(
+    db: Session,
+    *,
+    estudiante_id: int,
+    sesion_id: uuid.UUID,
+    unidad_id: int,
+    ejercicio_id: int,
+    rag_query: str,
+    rag_top_k: int = 6,
+) -> RehydrateResponse:
+    # HU
+    hu = db.execute(
+        select(ejercicio_hu.c.hu_text).where(ejercicio_hu.c.ejercicio_id == ejercicio_id)
+    ).scalar_one_or_none() or ""
+
+    # CA
+    cas = db.execute(
+        select(ejercicio_ca.c.ca_text)
+        .where(ejercicio_ca.c.ejercicio_id == ejercicio_id)
+        .order_by(ejercicio_ca.c.orden.asc())
+    ).scalars().all()
+
+    # resumen sesión
+    resumen = db.execute(
+        select(sesion_trabajo.c.resumen_sesion)
+        .where(sesion_trabajo.c.id == sesion_id)
+    ).scalar_one_or_none()
+
+    # ejercicio_estudiante
+    ee_row = db.execute(
+        select(ejercicio_estudiante.c.id)
+        .where(
+            (ejercicio_estudiante.c.estudiante_id == estudiante_id)
+            & (ejercicio_estudiante.c.ejercicio_id == ejercicio_id)
+        )
+    ).scalar_one_or_none()
+
+    ultima_entrega = None
+    if ee_row:
+        last = db.execute(
+            select(
+                entrega_ejercicio.c.version,
+                entrega_ejercicio.c.artefacto_tipo,
+                entrega_ejercicio.c.content_text,
+                entrega_ejercicio.c.storage_key,
+                entrega_ejercicio.c.created_at,
+            )
+            .where(entrega_ejercicio.c.ejercicio_estudiante_id == ee_row)
+            .order_by(entrega_ejercicio.c.version.desc())
+            .limit(1)
+        ).mappings().one_or_none()
+        if last:
+            ultima_entrega = dict(last)
+
+    # RAG retrieval
+    rag_chunks = retrieve_chunks(db, unidad_id=unidad_id, query=rag_query, top_k=rag_top_k)
+
+    # Construcción de contexto listo para prompt (compacto y auditable)
+    ca_block = "\n".join([f"- {c}" for c in cas]) if cas else "- (sin criterios cargados)"
+    entrega_block = ""
+    if ultima_entrega:
+        if ultima_entrega.get("content_text"):
+            entrega_block = f"\n\nÚltima entrega (v{ultima_entrega.get('version')}):\n{ultima_entrega['content_text']}"
+        elif ultima_entrega.get("storage_key"):
+            entrega_block = f"\n\nÚltima entrega (v{ultima_entrega.get('version')}): [archivo] {ultima_entrega['storage_key']}"
+        else:
+            entrega_block = f"\n\nÚltima entrega (v{ultima_entrega.get('version')}): (sin contenido)"
+    resumen_block = f"\n\nResumen de sesión previa:\n{resumen}" if resumen else ""
+
+    rag_block = ""
+    if rag_chunks:
+        # OJO: en runtime real, no metas 6 chunks enormes si estás corto de tokens.
+        # Podés truncar a X chars.
+        parts = []
+        for ch in rag_chunks:
+            snippet = ch["text"]
+            if len(snippet) > 900:
+                snippet = snippet[:900] + "…"
+            parts.append(
+                f"[chunk:{ch['chunk_id']} doc:{ch['unidad_documento_id']} p:{ch['page_from']}-{ch['page_to']} dist:{ch['distance']:.3f}]\n{snippet}"
+            )
+        rag_block = "\n\nFuentes RAG (top-k):\n" + "\n\n---\n\n".join(parts)
+
+    prompt_context = (
+        f"Historia de usuario:\n{hu}\n\n"
+        f"Criterios de aceptación:\n{ca_block}"
+        f"{entrega_block}"
+        f"{resumen_block}"
+        f"{rag_block}"
+    )
+
+    return RehydrateResponse(
+        ejercicio_id=ejercicio_id,
+        hu=hu,
+        criterios_aceptacion=cas,
+        ultima_entrega=ultima_entrega,
+        resumen_sesion=resumen,
+        rag_chunks=rag_chunks,
+        prompt_context=prompt_context,
+    )
+
+
+# =============================================================================
+# API Schemas
+# =============================================================================
+
+class UnidadDocumentoOut(BaseModel):
+    id: int
+    unidad_id: int
+    tipo: Literal["ENUNCIADO", "MATERIAL"]
+    titulo: str
+    storage_key: str
+    sha256: str
+    size_bytes: int
+    mime: str
+    orden: int
+    estado: str
+
+
+class IngestRequest(BaseModel):
+    unidad_documento_id: int
+
+
+class IngestResponse(BaseModel):
+    ingesta_id: uuid.UUID
+    status: str
+
+
+class RagQueryRequest(BaseModel):
+    unidad_id: int
+    estudiante_id: int
+    sesion_id: uuid.UUID
+    ejercicio_id: int
+    query: str
+    top_k: int = Field(default=6, ge=1, le=20)
+
+
+class RagQueryResponse(BaseModel):
+    rehydrated_prompt_context: str
+    retrieval: Dict[str, Any]
+    ai_event_ids: Dict[str, uuid.UUID]
+
+
+class RehydrateRequest(BaseModel):
+    unidad_id: int
+    estudiante_id: int
+    sesion_id: uuid.UUID
+    ejercicio_id: int
+    rag_query: str
+    rag_top_k: int = 6
+
+
+# =============================================================================
+# FastAPI
+# =============================================================================
+
+app = FastAPI(title="Activia RAG API")
+
+
+@app.post("/unidades/{unidad_id}/documentos/enunciado", response_model=UnidadDocumentoOut)
+async def upload_enunciado(
+    unidad_id: int,
+    file: UploadFile = File(...),
+    titulo: str = Form("Enunciado"),
+    created_by: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    if (file.content_type or "").lower() != "application/pdf":
+        raise HTTPException(status_code=400, detail="El enunciado debe ser PDF (application/pdf).")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Archivo vacío.")
+
+    h = sha256_bytes(pdf_bytes)
+    storage_key = f"unidades/{unidad_id}/enunciado/{h}.pdf"
+
+    # Subir a MinIO primero
+    put_pdf_to_minio(storage_key, pdf_bytes)
+
+    # Reglas: un solo ENUNCIADO vigente. Estrategia SR: archivar el anterior.
+    db.execute(
+        unidad_documento.update()
+        .where(
+            (unidad_documento.c.unidad_id == unidad_id)
+            & (unidad_documento.c.tipo == "ENUNCIADO")
+            & (unidad_documento.c.estado != "ARCHIVADO")
+        )
+        .values(estado="ARCHIVADO", updated_at=datetime.now(timezone.utc))
+    )
+
+    # Insert nuevo
+    res = db.execute(
+        unidad_documento.insert()
+        .values(
+            unidad_id=unidad_id,
+            tipo="ENUNCIADO",
+            titulo=titulo,
+            storage_key=storage_key,
+            sha256=h,
+            size_bytes=len(pdf_bytes),
+            mime="application/pdf",
+            orden=1,
+            estado="PUBLICADO",
+            created_by=created_by,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        .returning(
+            unidad_documento.c.id,
+            unidad_documento.c.unidad_id,
+            unidad_documento.c.tipo,
+            unidad_documento.c.titulo,
+            unidad_documento.c.storage_key,
+            unidad_documento.c.sha256,
+            unidad_documento.c.size_bytes,
+            unidad_documento.c.mime,
+            unidad_documento.c.orden,
+            unidad_documento.c.estado,
+        )
+    ).mappings().one()
+    db.commit()
+    return UnidadDocumentoOut(**res)
+
+
+@app.post("/unidades/{unidad_id}/documentos/material", response_model=List[UnidadDocumentoOut])
+async def upload_materiales(
+    unidad_id: int,
+    files: List[UploadFile] = File(...),
+    created_by: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="Debe enviar al menos un PDF.")
+
+    # calcular orden inicial (max orden de MATERIAL + 1)
+    max_orden = db.execute(
+        select(func.coalesce(func.max(unidad_documento.c.orden), 0))
+        .where((unidad_documento.c.unidad_id == unidad_id) & (unidad_documento.c.tipo == "MATERIAL"))
+    ).scalar_one()
+    next_orden = int(max_orden) + 1
+
+    out: List[UnidadDocumentoOut] = []
+    for i, f in enumerate(files):
+        if (f.content_type or "").lower() != "application/pdf":
+            raise HTTPException(status_code=400, detail=f"'{f.filename}' no es PDF.")
+
+        pdf_bytes = await f.read()
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail=f"'{f.filename}' está vacío.")
+
+        h = sha256_bytes(pdf_bytes)
+        storage_key = f"unidades/{unidad_id}/material/{h}.pdf"
+        put_pdf_to_minio(storage_key, pdf_bytes)
+
+        titulo = f.filename or f"Material {i+1}"
+
+        res = db.execute(
+            unidad_documento.insert()
+            .values(
+                unidad_id=unidad_id,
+                tipo="MATERIAL",
+                titulo=titulo,
+                storage_key=storage_key,
+                sha256=h,
+                size_bytes=len(pdf_bytes),
+                mime="application/pdf",
+                orden=next_orden + i,
+                estado="PUBLICADO",
+                created_by=created_by,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            .returning(
+                unidad_documento.c.id,
+                unidad_documento.c.unidad_id,
+                unidad_documento.c.tipo,
+                unidad_documento.c.titulo,
+                unidad_documento.c.storage_key,
+                unidad_documento.c.sha256,
+                unidad_documento.c.size_bytes,
+                unidad_documento.c.mime,
+                unidad_documento.c.orden,
+                unidad_documento.c.estado,
+            )
+        ).mappings().one()
+        out.append(UnidadDocumentoOut(**res))
+
+    db.commit()
+    return out
+
+
+@app.post("/ingest", response_model=IngestResponse)
+def trigger_ingest(body: IngestRequest, db: Session = Depends(get_db)):
+    # Ejecuta ingesta síncrona (para producción, mover a cola/worker)
+    ing_id = ingest_documento(db, unidad_documento_id=body.unidad_documento_id)
+    return IngestResponse(ingesta_id=ing_id, status="OK")
+
+
+@app.post("/rehydrate", response_model=RehydrateResponse)
+def rehydrate_endpoint(body: RehydrateRequest, db: Session = Depends(get_db)):
+    return rehydrate_context(
+        db,
+        estudiante_id=body.estudiante_id,
+        sesion_id=body.sesion_id,
+        unidad_id=body.unidad_id,
+        ejercicio_id=body.ejercicio_id,
+        rag_query=body.rag_query,
+        rag_top_k=body.rag_top_k,
+    )
+
+
+@app.post("/rag/query", response_model=RagQueryResponse)
+def rag_query(body: RagQueryRequest, db: Session = Depends(get_db)):
+    """
+    Hace retrieval por unidad_id, loguea:
+    - PROMPT_SUBMITTED
+    - RAG_RETRIEVAL
+    (La respuesta del modelo la podés agregar luego como MODEL_RESPONSE)
+    """
+    # 1) log prompt
+    ev_prompt = log_ai_event(
+        db,
+        estudiante_id=body.estudiante_id,
+        sesion_id=body.sesion_id,
+        ejercicio_id=body.ejercicio_id,
+        event_type="PROMPT_SUBMITTED",
+        payload={
+            "prompt": body.query,
+            "unidad_id": body.unidad_id,
+            "top_k": body.top_k,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    # 2) retrieval
+    t0 = time.time()
+    chunks = retrieve_chunks(db, unidad_id=body.unidad_id, query=body.query, top_k=body.top_k)
+    latency_ms = int((time.time() - t0) * 1000)
+
+    # simple confidence heuristic: distancia media de top3 (menor = mejor)
+    top = chunks[:3]
+    confidence = None
+    if top:
+        avg_dist = sum(c["distance"] for c in top) / len(top)
+        # mapear a 0..1 de forma simple (ajustable)
+        confidence = max(0.0, min(1.0, 1.0 - avg_dist))
+
+    ev_rag = log_ai_event(
+        db,
+        estudiante_id=body.estudiante_id,
+        sesion_id=body.sesion_id,
+        ejercicio_id=body.ejercicio_id,
+        event_type="RAG_RETRIEVAL",
+        payload={
+            "query": body.query,
+            "unidad_id": body.unidad_id,
+            "top_k": body.top_k,
+            "latency_ms": latency_ms,
+            "confidence": confidence,
+            "results": [
+                {
+                    "chunk_id": c["chunk_id"],
+                    "doc_id": c["unidad_documento_id"],
+                    "page_from": c["page_from"],
+                    "page_to": c["page_to"],
+                    "distance": c["distance"],
+                }
+                for c in chunks
+            ],
+        },
+    )
+
+    # 3) rehidratación lista para prompt
+    rh = rehydrate_context(
+        db,
+        estudiante_id=body.estudiante_id,
+        sesion_id=body.sesion_id,
+        unidad_id=body.unidad_id,
+        ejercicio_id=body.ejercicio_id,
+        rag_query=body.query,
+        rag_top_k=body.top_k,
+    )
+
+    return RagQueryResponse(
+        rehydrated_prompt_context=rh.prompt_context,
+        retrieval={
+            "top_k": body.top_k,
+            "confidence": confidence,
+            "chunks": chunks,
+        },
+        ai_event_ids={
+            "PROMPT_SUBMITTED": ev_prompt,
+            "RAG_RETRIEVAL": ev_rag,
+        },
+    )
+
+
+# =============================================================================
+# Run:
+# uvicorn app:app --reload
+# =============================================================================
+
+Cómo usarlo (flujo exacto)
+
+Docente sube enunciado
+POST /unidades/{unidad_id}/documentos/enunciado (multipart: file)
+
+Docente sube materiales (varios PDFs)
+POST /unidades/{unidad_id}/documentos/material (multipart: files[])
+
+Disparar ingesta para un documento
+POST /ingest JSON: {"unidad_documento_id": 123}
+
+Estudiante hace consulta RAG + logging + prompt rehidratado
+POST /rag/query JSON:
+
+{
+  "unidad_id": 3,
+  "estudiante_id": 10,
+  "sesion_id": "6b5f7c2c-9b2d-4e2b-9a73-5c3a8b0b8d70",
+  "ejercicio_id": 22,
+  "query": "¿Cómo debo validar la entrada y cuáles son los casos límite?",
+  "top_k": 6
+}
+
+
+Te devuelve:
+
+rehydrated_prompt_context listo para pegar como “contexto” al LLM
+
+retrieval con chunks y confidence
+
+IDs de eventos IA ya registrados
+
+Notas SR importantes (para que te quede “best practices”)
+
+Ingesta síncrona: acá corre inline para que lo puedas probar ya. En producción, movelo a worker/cola (Celery/RQ/n8n/cron).
+
+Filtros “solo PUBLICADO”: en retrieve_chunks podés hacer JOIN a unidad_documento y filtrar estado='PUBLICADO'.
+
+Dimensión de embedding: si cambiás de modelo, idealmente versionás el modelo de embeddings y/o separás tablas por dimensión.
+
+Rehidratación: el prompt_context ya viene armado con HU+CA+última entrega+resumen+RAG. En producción, truncá textos para controlar tokens.

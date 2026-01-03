@@ -198,10 +198,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
 
       return new Date(data.fin_estimado);
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error (redundant with error state)
       if (!isMountedRef.current) return null;
-      if (import.meta.env.DEV) {
-        console.error('Error iniciando sesion:', err);
-      }
       setError(getErrorMessage(err));
       return null;
     } finally {
@@ -329,10 +327,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
         }
       }
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error
       if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error enviando ejercicio:', err);
-      }
       setError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
@@ -359,10 +355,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
       setCurrentHint(hint);
       setCurrentHintNumber((prev) => prev + 1);
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error
       if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error solicitando pista:', err);
-      }
       setError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
@@ -396,10 +390,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
         setShowReflexionModal(true);
       }
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error
       if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error solicitando pista V2:', err);
-      }
       setError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
@@ -428,10 +420,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
         setLastReflexionResponse(response);
         setShowReflexionModal(false);
       } catch (err: unknown) {
+        // FIX Cortez71: Removed DEV-only console.error
         if (!isMountedRef.current) return;
-        if (import.meta.env.DEV) {
-          console.error('Error enviando reflexion:', err);
-        }
         setError(getErrorMessage(err));
       } finally {
         if (isMountedRef.current) {
@@ -458,10 +448,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
 
       setProcesoAnalisis(analisis);
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error
       if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error cargando proceso analisis:', err);
-      }
       setError(getErrorMessage(err));
     }
   }, [session]);
@@ -502,10 +490,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
       setCorreccionIA(response);
       setShowCorreccionModal(true);
     } catch (err: unknown) {
+      // FIX Cortez71: Removed DEV-only console.error
       if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error solicitando correccion IA:', err);
-      }
       setError(getErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
@@ -545,11 +531,8 @@ export function useTrainingSession(params: TrainingSessionParams): UseTrainingSe
           resuelto: false,
         })));
       }
-    } catch (err: unknown) {
-      if (!isMountedRef.current) return;
-      if (import.meta.env.DEV) {
-        console.error('Error refrescando estado sesion:', err);
-      }
+    } catch {
+      // FIX Cortez71: Removed DEV-only console.error
       // Don't set error for refresh failures - they're non-critical
     }
   }, [session]);

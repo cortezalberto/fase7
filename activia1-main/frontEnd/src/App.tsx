@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './shared/components/Toast/Toast';
 import Layout from './components/Layout';
+import TeacherLayout from './components/TeacherLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary, { ErrorBoundaryWithNavigation } from './components/ErrorBoundary';
 
@@ -79,15 +80,24 @@ function App() {
               <Route path="training" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TrainingPage /></Suspense></ErrorBoundaryWithNavigation>} />
               <Route path="training/exam" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TrainingExamPage /></Suspense></ErrorBoundaryWithNavigation>} />
 
-              {/* Teacher/Docente routes (HU-DOC-001 to HU-DOC-010) - Requires teacher role */}
-              <Route path="teacher" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TeacherDashboardPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="teacher/dashboard" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TeacherDashboardPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="teacher/reports" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ReportsPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="teacher/risks" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><InstitutionalRisksPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="teacher/monitoring" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><StudentMonitoringPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="teacher/activities" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ActivityManagementPage /></Suspense></ErrorBoundaryWithNavigation>} />
-
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Route>
+
+            {/* Teacher/Docente routes with TeacherLayout (HU-DOC-001 to HU-DOC-010) */}
+            <Route
+              path="/teacher"
+              element={
+                <ProtectedRoute>
+                  <TeacherLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="/teacher/dashboard" replace />} />
+              <Route path="dashboard" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TeacherDashboardPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="reports" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ReportsPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="risks" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><InstitutionalRisksPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="monitoring" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><StudentMonitoringPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="activities" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ActivityManagementPage /></Suspense></ErrorBoundaryWithNavigation>} />
             </Route>
           </Routes>
           </BrowserRouter>

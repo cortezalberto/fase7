@@ -335,7 +335,8 @@ IMPORTANTE: Responde SOLO el JSON, sin texto adicional."""
             )
             
             # FIX Cortez36: Use lazy logging formatting
-            logger.info("✅ Generated process evaluation for session %s", session_id)
+            # FIX Cortez69 CRIT-CORE-002: No emojis in logs (Windows cp1252 compat)
+            logger.info("Generated process evaluation for session %s", session_id)
             return APIResponse(
                 success=True,
                 data=evaluation,
@@ -344,7 +345,8 @@ IMPORTANTE: Responde SOLO el JSON, sin texto adicional."""
             
         except json.JSONDecodeError as e:
             # FIX Cortez36: Use lazy logging formatting
-            logger.warning("⚠️ Failed to parse Ollama JSON response: %s", e)
+            # FIX Cortez69 CRIT-CORE-002: No emojis in logs
+            logger.warning("Failed to parse Ollama JSON response: %s", e)
             # Modo fallback: usar respuesta demo realista
             evaluation = _generate_fallback_evaluation(session_id, session.student_id, session.activity_id, len(traces))
             return APIResponse(

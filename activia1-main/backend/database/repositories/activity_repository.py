@@ -87,12 +87,34 @@ class ActivityRepository:
         self.db.refresh(activity)
         return activity
 
-    def get_by_id(self, activity_id: str) -> Optional[ActivityDB]:
-        """Get activity by internal ID."""
-        return self.db.query(ActivityDB).filter(ActivityDB.id == activity_id).first()
+    def get_by_id(self, id: str) -> Optional[ActivityDB]:
+        """
+        Get activity by internal UUID (ActivityDB.id).
+
+        Args:
+            id: Internal UUID (primary key)
+
+        Returns:
+            ActivityDB or None
+
+        Note:
+            Use get_by_activity_id() for business key lookup.
+        """
+        return self.db.query(ActivityDB).filter(ActivityDB.id == id).first()
 
     def get_by_activity_id(self, activity_id: str) -> Optional[ActivityDB]:
-        """Get activity by activity_id (unique identifier)."""
+        """
+        Get activity by business key (ActivityDB.activity_id).
+
+        Args:
+            activity_id: Business key (e.g., "ACT-001")
+
+        Returns:
+            ActivityDB or None
+
+        Note:
+            Use get_by_id() for internal UUID lookup.
+        """
         return self.db.query(ActivityDB).filter(ActivityDB.activity_id == activity_id).first()
 
     def get_by_teacher(
@@ -317,3 +339,166 @@ class ActivityRepository:
             .all()
         )
         return {activity.activity_id: activity for activity in activities}
+
+    # =========================================================================
+    # LTI/Moodle Integration Methods (Cortez65.1)
+    # =========================================================================
+
+    def get_by_moodle_context(
+        self,
+        moodle_course_id: str,
+        moodle_resource_name: str,
+    ) -> Optional[ActivityDB]:
+        """
+        Find an activity by Moodle course and resource name.
+
+        This is used during LTI launch to automatically find the matching
+        AI-Native activity configured by the teacher.
+
+        Args:
+            moodle_course_id: The context_id from Moodle LTI claims
+            moodle_resource_name: The resource_link_title from Moodle LTI claims
+
+        Returns:
+            Matching ActivityDB if found, None otherwise
+        """
+        return (
+            self.db.query(ActivityDB)
+            .filter(
+                ActivityDB.moodle_course_id == moodle_course_id,
+                ActivityDB.moodle_resource_name == moodle_resource_name,
+                ActivityDB.status == "active",
+            )
+            .first()
+        )
+
+    def get_by_moodle_resource_name(
+        self,
+        moodle_resource_name: str,
+    ) -> Optional[ActivityDB]:
+        """
+        Find an activity by Moodle resource name only.
+
+        Fallback when course_id matching doesn't find a result.
+        Useful when the same activity name is used across courses.
+
+        Args:
+            moodle_resource_name: The resource_link_title from Moodle LTI claims
+
+        Returns:
+            Matching ActivityDB if found, None otherwise
+        """
+        return (
+            self.db.query(ActivityDB)
+            .filter(
+                ActivityDB.moodle_resource_name == moodle_resource_name,
+                ActivityDB.status == "active",
+            )
+            .first()
+        )
+
+    def link_to_moodle(
+        self,
+        activity_id: str,
+        moodle_course_id: str,
+        moodle_course_name: str,
+        moodle_course_label: Optional[str] = None,
+        moodle_resource_name: Optional[str] = None,
+    ) -> Optional[ActivityDB]:
+        """
+        Link an existing activity to a Moodle course/resource.
+
+        This is called by the teacher when configuring the LTI integration.
+
+        Args:
+            activity_id: AI-Native activity ID to link
+            moodle_course_id: The context_id from Moodle
+            moodle_course_name: The context_title (course name)
+            moodle_course_label: The context_label (commission code)
+            moodle_resource_name: The resource_link_title (activity name in Moodle)
+
+        Returns:
+            Updated ActivityDB if found, None otherwise
+        """
+        try:
+            # FIX Cortez70 CRIT-DB-001: Use SELECT FOR UPDATE to prevent race conditions
+            stmt = select(ActivityDB).where(ActivityDB.activity_id == activity_id).with_for_update()
+            activity = self.db.execute(stmt).scalar_one_or_none()
+
+            if not activity:
+                return None
+
+            activity.moodle_course_id = moodle_course_id
+            activity.moodle_course_name = moodle_course_name
+            activity.moodle_course_label = moodle_course_label
+            activity.moodle_resource_name = moodle_resource_name
+            activity.updated_at = utc_now()
+
+            self.db.commit()
+            self.db.refresh(activity)
+            logger.info(
+                "Linked activity '%s' to Moodle course '%s' resource '%s'",
+                activity_id,
+                moodle_course_id,
+                moodle_resource_name,
+            )
+            return activity
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to link activity %s to Moodle: %s", activity_id, e, exc_info=True)
+            raise
+
+    def unlink_from_moodle(self, activity_id: str) -> Optional[ActivityDB]:
+        """
+        Remove Moodle link from an activity.
+
+        Args:
+            activity_id: AI-Native activity ID to unlink
+
+        Returns:
+            Updated ActivityDB if found, None otherwise
+        """
+        try:
+            # FIX Cortez70 CRIT-DB-002: Use SELECT FOR UPDATE to prevent race conditions
+            stmt = select(ActivityDB).where(ActivityDB.activity_id == activity_id).with_for_update()
+            activity = self.db.execute(stmt).scalar_one_or_none()
+
+            if not activity:
+                return None
+
+            activity.moodle_course_id = None
+            activity.moodle_course_name = None
+            activity.moodle_course_label = None
+            activity.moodle_resource_name = None
+            activity.updated_at = utc_now()
+
+            self.db.commit()
+            self.db.refresh(activity)
+            logger.info("Unlinked activity '%s' from Moodle", activity_id)
+            return activity
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to unlink activity %s from Moodle: %s", activity_id, e, exc_info=True)
+            raise
+
+    def get_moodle_linked_activities(
+        self,
+        teacher_id: Optional[str] = None,
+    ) -> List[ActivityDB]:
+        """
+        Get all activities that are linked to Moodle.
+
+        Args:
+            teacher_id: Optional filter by teacher
+
+        Returns:
+            List of activities with Moodle links
+        """
+        query = self.db.query(ActivityDB).filter(
+            ActivityDB.moodle_course_id.isnot(None),
+        )
+
+        if teacher_id:
+            query = query.filter(ActivityDB.teacher_id == teacher_id)
+
+        return query.order_by(desc(ActivityDB.updated_at)).all()

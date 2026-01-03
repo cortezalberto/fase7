@@ -2,8 +2,8 @@
 
 ## Documentacion Tecnica del Sistema Frontend
 
-**Version**: 2.0.0
-**Actualizacion**: Enero 2026 (Cortez60)
+**Version**: 2.1.0
+**Actualizacion**: Enero 2026 (Cortez63)
 **Stack Tecnologico**: React 19 · TypeScript 5.7 · Vite 6 · Zustand 5 · Tailwind CSS 3
 
 ---
@@ -435,6 +435,7 @@ Cada dominio del sistema tiene un servicio dedicado que encapsula las operacione
 | `evaluationsService` | Evaluaciones E-IA-Proc |
 | `reportsService` | Generacion de reportes docentes |
 | `institutionalRisksService` | Gestion de alertas y planes de remediacion |
+| `teacherTraceabilityService` | Trazabilidad N4 de estudiantes para docentes (Cortez63) |
 
 ### Training Service V2 (Cortez55)
 
@@ -641,6 +642,131 @@ Los servicios que soportan las funcionalidades del docente estan en `services/ap
 | `/admin/risks/alerts` | GET | Lista de alertas de riesgo |
 | `/admin/risks/scan` | POST | Ejecutar escaneo de riesgos |
 | `/admin/risks/remediation` | POST | Crear plan de remediacion |
+| `/teacher/students/{id}/traceability` | GET | Trazabilidad N4 de estudiante |
+| `/teacher/students/{id}/cognitive-path` | GET | Camino cognitivo de estudiante |
+| `/teacher/traceability/summary` | GET | Resumen global de trazabilidad |
+
+### 8.9 Trazabilidad N4 para Docentes (Cortez63)
+
+Una de las capacidades mas distintivas del sistema es la trazabilidad cognitiva de nivel N4, que captura y analiza cada paso del proceso de aprendizaje de los estudiantes. Hasta Cortez62, esta informacion estaba disponible unicamente para los propios estudiantes y el sistema interno. Con Cortez63, los docentes obtienen acceso completo a estos datos para supervision pedagogica y deteccion temprana de patrones de riesgo.
+
+#### Nuevo Servicio: teacherTraceabilityService
+
+El servicio `teacherTraceabilityService` ubicado en [services/api/teacherTraceability.service.ts](src/services/api/teacherTraceability.service.ts) proporciona tres operaciones fundamentales para acceder a la trazabilidad de estudiantes:
+
+```tsx
+export const teacherTraceabilityService = {
+  // Obtiene trazas N4 detalladas de un estudiante especifico
+  async getStudentTraceability(
+    studentId: string,
+    params?: { activity_id?: string; limit?: number; offset?: number }
+  ): Promise<StudentTraceabilityResponse>;
+
+  // Reconstruye el camino cognitivo de un estudiante
+  async getStudentCognitivePath(
+    studentId: string,
+    params?: { session_id?: string }
+  ): Promise<StudentCognitivePathResponse>;
+
+  // Obtiene metricas agregadas de todos los estudiantes
+  async getTraceabilitySummary(
+    params?: { activity_id?: string }
+  ): Promise<TraceabilitySummaryResponse>;
+};
+```
+
+El servicio define tipos TypeScript completos para representar la informacion de trazabilidad:
+
+- **TraceLevel**: Los cuatro niveles de procesamiento (`'N1' | 'N2' | 'N3' | 'N4'`)
+- **CognitiveState**: Los ocho estados cognitivos posibles (`INICIO`, `EXPLORACION`, `IMPLEMENTACION`, `DEPURACION`, `CAMBIO_ESTRATEGIA`, `VALIDACION`, `ESTANCAMIENTO`, `REFLEXION`)
+- **TraceData**: Datos de una traza individual incluyendo sesion, actividad, nivel, tipo de interaccion, estado cognitivo, intencionalidad, justificacion de decisiones, tipo de estrategia e involucramiento de IA
+- **TraceabilitySummary**: Resumen con distribuciones de estados cognitivos, niveles de traza, tipos de interaccion, y promedio de involucramiento de IA
+- **AIDependencyDistribution**: Clasificacion de estudiantes por nivel de dependencia de IA (`high > 70%`, `medium 40-70%`, `low < 40%`)
+- **TraceabilityAlert**: Alertas automaticas por alta dependencia de IA o estancamiento prolongado
+
+#### Componente: StudentTraceabilityViewer
+
+El componente [StudentTraceabilityViewer](src/components/teacher/StudentTraceabilityViewer.tsx) permite a los docentes examinar en profundidad la trazabilidad de un estudiante individual. Se organiza en tres pestañas:
+
+**Pestaña Resumen (Overview)**: Muestra una vision consolidada del estudiante con cuatro metricas clave:
+- Total de trazas N4 generadas
+- Promedio de involucramiento de IA (porcentaje)
+- Numero de estados cognitivos unicos alcanzados
+- Distribucion grafica de estados cognitivos (grafico de barras horizontal)
+- Distribucion de niveles de traza (N1-N4) como porcentajes
+- Distribucion de tipos de interaccion
+
+**Pestaña Trazas**: Lista paginada de todas las trazas del estudiante con detalles expandibles:
+- Nivel de traza (N1-N4) con codigo de color
+- Estado cognitivo actual
+- Tipo de interaccion
+- Marca temporal
+- Contenido de la traza
+- Intencionalidad cognitiva
+- Justificacion de decisiones (cuando esta disponible)
+
+**Pestaña Camino Cognitivo**: Visualiza la secuencia temporal de estados cognitivos:
+- Timeline vertical de transiciones entre estados
+- Tiempo acumulado en cada estado
+- Insights automaticos sobre patrones de comportamiento
+- Estados unicos alcanzados durante la sesion
+
+#### Integracion en StudentMonitoringPage
+
+La pagina de monitoreo de estudiantes [StudentMonitoringPage](src/pages/StudentMonitoringPage.tsx) incorpora una nueva pestaña "Trazabilidad N4" que proporciona:
+
+**Panel de estadisticas globales:**
+- Total de estudiantes monitoreados
+- Total de trazas N4 capturadas
+- Porcentaje de estudiantes con alta dependencia de IA
+
+**Distribucion de estados cognitivos**: Grafico de barras mostrando cuantos estudiantes se encuentran en cada estado cognitivo, permitiendo identificar patrones globales como exceso de estudiantes en estado ESTANCAMIENTO.
+
+**Sistema de alertas**: Las alertas automaticas se muestran con severidad codificada por color:
+- Alertas criticas (rojo) para patrones que requieren intervencion inmediata
+- Alertas de advertencia (amarillo) para patrones que merecen atencion
+
+**Clasificacion por dependencia de IA**: Los estudiantes se agrupan en tres categorias:
+- Alta dependencia (>70%): Estudiantes que delegan excesivamente en la IA
+- Dependencia media (40-70%): Uso equilibrado de asistencia
+- Baja dependencia (<40%): Trabajo predominantemente autonomo
+
+Cada estudiante en la lista puede expandirse para acceder al `StudentTraceabilityViewer` completo sin navegar a otra pagina.
+
+#### Integracion en TeacherDashboardPage
+
+El panel principal del docente [TeacherDashboardPage](src/pages/TeacherDashboardPage.tsx) se enriquece con metricas de trazabilidad:
+
+**Nueva tarjeta de estadisticas**: "Trazas N4" muestra el total de trazas capturadas con tendencia de crecimiento e icono distintivo.
+
+**Nueva accion rapida**: "Trazabilidad N4" permite navegar directamente a la pestaña de trazabilidad en la pagina de monitoreo con un click.
+
+**Seccion de Trazabilidad Cognitiva N4**: Panel dedicado al final del dashboard que incluye:
+- Grafico de distribucion de estados cognitivos globales usando barras horizontales con colores diferenciados para cada estado
+- Grafico de distribucion de dependencia de IA mostrando el porcentaje de estudiantes en cada categoria (alta, media, baja)
+- Indicadores numericos con el total de estudiantes en cada nivel de dependencia
+
+Esta integracion permite a los docentes obtener una vista rapida del estado cognitivo general de su cohorte sin necesidad de navegar a paginas de detalle, facilitando la deteccion temprana de problemas pedagogicos a nivel grupal.
+
+#### Resumen de la Implementacion
+
+**Backend** (3 nuevos endpoints en [teacher_tools.py](../backend/api/routers/teacher_tools.py)):
+
+| Endpoint | Proposito | Capacidades |
+|----------|-----------|-------------|
+| `GET /teacher/students/{student_id}/traceability` | Trazabilidad completa de un estudiante | Muestra todas las trazas N4 con filtros por actividad. Incluye distribucion de estados cognitivos, niveles de traza, tipos de interaccion. Calcula promedio de dependencia de IA. Soporta paginacion. |
+| `GET /teacher/students/{student_id}/cognitive-path` | Camino cognitivo del estudiante | Visualiza la evolucion cognitiva a traves de transiciones de estado. Calcula tiempo en cada estado. Genera insights automaticos (alertas de estancamiento, patrones). |
+| `GET /teacher/traceability/summary` | Resumen global de trazabilidad | Distribucion de estados cognitivos de todos los estudiantes. Clasificacion por dependencia de IA (alta/media/baja). Alertas de trazabilidad (alta dependencia, estancamiento frecuente). |
+
+**Frontend** (nuevos archivos y modificaciones):
+
+| Archivo | Tipo | Descripcion |
+|---------|------|-------------|
+| [teacherTraceability.service.ts](src/services/api/teacherTraceability.service.ts) | Nuevo | Servicio con tipos TypeScript y metodos para los 3 endpoints |
+| [StudentTraceabilityViewer.tsx](src/components/teacher/StudentTraceabilityViewer.tsx) | Nuevo | Componente con 3 tabs (Resumen, Trazas, Camino Cognitivo) |
+| [StudentMonitoringPage.tsx](src/pages/StudentMonitoringPage.tsx) | Modificado | Nueva pestaña "Trazabilidad N4" con estadisticas y alertas |
+| [TeacherDashboardPage.tsx](src/pages/TeacherDashboardPage.tsx) | Modificado | Nueva tarjeta de stats, accion rapida, seccion de graficos |
+| [services/api/index.ts](src/services/api/index.ts) | Modificado | Export del nuevo servicio y tipos |
 
 ---
 
@@ -1298,6 +1424,7 @@ docker-compose up -d frontend
 
 | Auditoria | Fecha | Cambios Principales |
 |-----------|-------|---------------------|
+| Cortez63 | Enero 2026 | Trazabilidad N4 para Docentes: 3 endpoints backend, teacherTraceabilityService, StudentTraceabilityViewer, integracion en Dashboard y Monitoring |
 | Cortez60 | Enero 2026 | Accesibilidad (role/aria), keys unicos, limpieza ESLint |
 | Cortez55 | Enero 2026 | V2 Training con N4, 4 nuevos componentes |
 | Cortez48 | Diciembre 2025 | 28 React.FC -> function, ErrorBoundaryWithNavigation |

@@ -150,6 +150,7 @@ export interface ActiveSession {
 
 // ===== Auth Types =====
 // FIX 5.1 Cortez12: Added missing fields from backend UserResponse
+// Cortez65.2: Added course_name and commission for academic context
 export interface User {
   id: string;
   username: string;
@@ -160,6 +161,9 @@ export interface User {
   is_active: boolean;
   is_verified?: boolean;  // FIX 5.1: Added from backend
   created_at?: string;  // FIX 5.1: Added from backend
+  // Cortez65.2: Academic context for testing without LTI
+  course_name?: string;  // Current course name (e.g., "Programacion I")
+  commission?: string;   // Commission code (e.g., "K1021")
 }
 
 // FIX 5.3 Cortez12: Added missing fields from backend TokenResponse
@@ -185,10 +189,14 @@ export interface RegisterData {
 }
 
 // ===== Session Aliases (for backwards compatibility) =====
+// FIX Cortez71 MED-001: These aliases add no semantic value
+// @deprecated Use SessionResponse directly instead of Session
 export type Session = SessionResponse;
+// @deprecated Use SessionCreate directly instead of CreateSessionData
 export type CreateSessionData = SessionCreate;
 
 // ===== Interaction Aliases =====
+// @deprecated Use InteractionRequest directly instead of Interaction
 export type Interaction = InteractionRequest;
 
 // ===== Simulator Types =====
@@ -276,7 +284,10 @@ export interface TestResult {
 }
 
 // ===== Activity Aliases =====
+// FIX Cortez71 MED-001: These aliases add no semantic value
+// @deprecated Use ActivityResponse directly instead of Activity
 export type Activity = ActivityResponse;
+// @deprecated Use PolicyConfig directly instead of ActivityPolicies
 export type ActivityPolicies = PolicyConfig;
 
 // ===== Health Types =====

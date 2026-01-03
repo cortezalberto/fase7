@@ -13,12 +13,17 @@ Configuration:
     model: Model name (default: mistral-small)
     temperature: Sampling temperature (default: 0.7)
     timeout: Request timeout in seconds (default: 60)
+
+FIX Cortez67:
+- Added persistent HTTP client with connection pooling (CRITICAL-005)
+- Added retry jitter to prevent thundering herd (HIGH-001)
 """
 from typing import Optional, Dict, Any, List, AsyncIterator
 import logging
 import httpx
 import json
 import asyncio
+import random
 
 from .base import LLMProvider, LLMMessage, LLMResponse, LLMRole
 
@@ -57,24 +62,99 @@ class MistralProvider(LLMProvider):
         self.api_key = self.config.get("api_key")
         if not self.api_key:
             raise ValueError("Mistral API key is required. Set MISTRAL_API_KEY environment variable.")
-        
+
         self.model = self.config.get("model", self.SMALL_MODEL)
         self.temperature = self.config.get("temperature", 0.7)
         self.timeout = self.config.get("timeout", 60.0)
-        
+
         # Retry configuration
         self.max_retries = self.config.get("max_retries", 3)
         self.retry_delay = self.config.get("retry_delay", 1.0)
         self.retry_backoff = self.config.get("retry_backoff", 2.0)
 
+        # FIX Cortez67 (CRITICAL-005): Persistent HTTP client with connection pooling
+        self._client: Optional[httpx.AsyncClient] = None
+        self._client_lock = asyncio.Lock()
+
+        # FIX Cortez67: Connection pool configuration
+        self._max_keepalive_connections = self.config.get("max_keepalive_connections", 20)
+        self._max_connections = self.config.get("max_connections", 100)
+        self._keepalive_expiry = self.config.get("keepalive_expiry", 30.0)
+
+        # FIX Cortez69 CRIT-LLM-002: Concurrency control to prevent connection exhaustion
+        self._max_concurrent = self.config.get("max_concurrent", 10)
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        # FIX Cortez70 CRIT-LLM-002: Lock for thread-safe semaphore initialization
+        self._semaphore_lock = asyncio.Lock()
+
         logger.info(
-            f"MistralProvider initialized",
+            "MistralProvider initialized",
             extra={
                 "model": self.model,
                 "temperature": self.temperature,
-                "timeout": self.timeout
+                "timeout": self.timeout,
+                "max_connections": self._max_connections
             }
         )
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """
+        FIX Cortez67 (CRITICAL-005): Get or create persistent HTTP client.
+
+        Uses double-checked locking for thread safety and connection pooling
+        for performance. This prevents creating new TCP connections for each request.
+        """
+        if self._client is None:
+            async with self._client_lock:
+                if self._client is None:
+                    self._client = httpx.AsyncClient(
+                        timeout=self.timeout,
+                        limits=httpx.Limits(
+                            max_keepalive_connections=self._max_keepalive_connections,
+                            max_connections=self._max_connections,
+                            keepalive_expiry=self._keepalive_expiry
+                        ),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {self.api_key}"
+                        }
+                    )
+                    logger.debug("Created persistent HTTP client for Mistral")
+        return self._client
+
+    async def _get_semaphore(self) -> asyncio.Semaphore:
+        """
+        FIX Cortez69 CRIT-LLM-002: Lazy initialization of semaphore.
+        FIX Cortez70 CRIT-LLM-002: Use double-checked locking for thread safety.
+        """
+        if self._semaphore is None:
+            async with self._semaphore_lock:
+                if self._semaphore is None:
+                    self._semaphore = asyncio.Semaphore(self._max_concurrent)
+        return self._semaphore
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """
+        FIX Cortez67 (HIGH-001): Calculate retry delay with jitter.
+
+        Adds random jitter to prevent thundering herd problem when
+        multiple clients retry simultaneously after a service recovery.
+        """
+        base_delay = self.retry_delay * (self.retry_backoff ** attempt)
+        # Add jitter: random value between 0 and 50% of base delay
+        jitter = random.uniform(0, base_delay * 0.5)
+        return base_delay + jitter
+
+    async def close(self) -> None:
+        """
+        FIX Cortez67: Close the HTTP client and release connections.
+
+        Should be called during application shutdown.
+        """
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+            logger.info("Mistral HTTP client closed")
 
     def _convert_messages_to_mistral_format(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
         """
@@ -144,40 +224,39 @@ class MistralProvider(LLMProvider):
         if max_tokens:
             payload["max_tokens"] = max_tokens
         
-        # Make request with retries
-        for attempt in range(self.max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    url = f"{self.BASE_URL}/chat/completions"
-                    
+        # FIX Cortez67 (CRITICAL-005): Use persistent client instead of creating new one
+        client = await self._get_client()
+        url = f"{self.BASE_URL}/chat/completions"
+
+        # FIX Cortez69 CRIT-LLM-002: Use semaphore to limit concurrent requests
+        # FIX Cortez70 CRIT-LLM-002: Use await for async _get_semaphore
+        semaphore = await self._get_semaphore()
+        async with semaphore:
+            # Make request with retries
+            for attempt in range(self.max_retries):
+                try:
                     logger.debug(
-                        f"Sending request to Mistral (attempt {attempt + 1}/{self.max_retries})",
+                        "Sending request to Mistral (attempt %d/%d)",
+                        attempt + 1, self.max_retries,
                         extra={
                             "model": model,
                             "messages_count": len(messages),
                             "temperature": temperature
                         }
                     )
-                    
-                    response = await client.post(
-                        url,
-                        json=payload,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Authorization": f"Bearer {self.api_key}"
-                        }
-                    )
-                    
+
+                    response = await client.post(url, json=payload)
+
                     response.raise_for_status()
                     result = response.json()
-                    
+
                     # Extract content from response
                     if "choices" not in result or not result["choices"]:
                         raise ValueError("No choices in Mistral response")
-                    
+
                     choice = result["choices"][0]
                     content = choice["message"]["content"]
-                    
+
                     # Extract usage metadata
                     usage_data = result.get("usage", {})
                     usage = {
@@ -185,7 +264,7 @@ class MistralProvider(LLMProvider):
                         "completion_tokens": usage_data.get("completion_tokens", 0),
                         "total_tokens": usage_data.get("total_tokens", 0)
                     }
-                    
+
                     logger.info(
                         "Mistral request successful",
                         extra={
@@ -194,7 +273,7 @@ class MistralProvider(LLMProvider):
                             "finish_reason": choice.get("finish_reason", "stop")
                         }
                     )
-                    
+
                     return LLMResponse(
                         content=content,
                         model=model,
@@ -203,37 +282,43 @@ class MistralProvider(LLMProvider):
                             "finish_reason": choice.get("finish_reason", "stop")
                         }
                     )
-                    
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    f"Mistral HTTP error (attempt {attempt + 1}/{self.max_retries}): {e.response.status_code}",
-                    extra={"response": e.response.text}
-                )
-                
-                # Don't retry on client errors (4xx)
-                if 400 <= e.response.status_code < 500:
-                    raise
-                
-                # Retry on server errors (5xx)
-                if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (self.retry_backoff ** attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    raise
-                    
-            except Exception as e:
-                logger.error(
-                    f"Mistral request failed (attempt {attempt + 1}/{self.max_retries}): {e}",
-                    exc_info=True
-                )
-                
-                if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (self.retry_backoff ** attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    raise
+
+                except httpx.HTTPStatusError as e:
+                    logger.warning(
+                        "Mistral HTTP error (attempt %d/%d): %s",
+                        attempt + 1, self.max_retries, e.response.status_code,
+                        extra={"response": e.response.text}
+                    )
+
+                    # Don't retry on client errors (4xx)
+                    if 400 <= e.response.status_code < 500:
+                        raise
+
+                    # Retry on server errors (5xx)
+                    if attempt < self.max_retries - 1:
+                        # FIX Cortez67 (HIGH-001): Use jitter delay
+                        delay = self._calculate_retry_delay(attempt)
+                        logger.debug("Retrying in %.2f seconds (with jitter)", delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise
+
+                except Exception as e:
+                    logger.error(
+                        "Mistral request failed (attempt %d/%d): %s",
+                        attempt + 1, self.max_retries, e,
+                        exc_info=True
+                    )
+
+                    if attempt < self.max_retries - 1:
+                        # FIX Cortez67 (HIGH-001): Use jitter delay
+                        delay = self._calculate_retry_delay(attempt)
+                        logger.debug("Retrying in %.2f seconds (with jitter)", delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise
 
     async def generate_stream(
         self,
@@ -272,29 +357,25 @@ class MistralProvider(LLMProvider):
         
         if max_tokens:
             payload["max_tokens"] = max_tokens
-        
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            url = f"{self.BASE_URL}/chat/completions"
-            
-            async with client.stream(
-                "POST",
-                url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}"
-                }
-            ) as response:
+
+        # FIX Cortez67 (CRITICAL-005): Use persistent client
+        client = await self._get_client()
+        url = f"{self.BASE_URL}/chat/completions"
+
+        # FIX Cortez70 CRIT-LLM-003: Apply semaphore to streaming to prevent connection exhaustion
+        semaphore = await self._get_semaphore()
+        async with semaphore:
+            async with client.stream("POST", url, json=payload) as response:
                 response.raise_for_status()
-                
+
                 async for line in response.aiter_lines():
                     if not line.strip() or line.strip() == "data: [DONE]":
                         continue
-                    
+
                     if line.startswith("data: "):
                         try:
                             data = json.loads(line[6:])
-                            
+
                             if "choices" in data and data["choices"]:
                                 delta = data["choices"][0].get("delta", {})
                                 if "content" in delta:

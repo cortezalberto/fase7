@@ -346,3 +346,350 @@ async def acknowledge_alert(
         },
         message=f"Alerta {alert_id} marcada como atendida"
     )
+
+
+# =====================================================================
+# TRACEABILITY ENDPOINTS FOR TEACHERS (Cortez63)
+# =====================================================================
+
+@router.get(
+    "/students/{student_id}/traceability",
+    summary="Obtener trazabilidad N4 de un estudiante",
+    description="Obtiene la trazabilidad cognitiva completa de un estudiante. Requiere rol teacher."
+)
+async def get_student_traceability(
+    student_id: str,
+    activity_id: str = Query(None, description="Filtrar por actividad específica"),
+    limit: int = Query(50, ge=1, le=200, description="Máximo de trazas a retornar"),
+    offset: int = Query(0, ge=0, description="Offset para paginación"),
+    db: Session = Depends(get_db),
+    trace_repo: TraceRepository = Depends(get_trace_repository),
+    session_repo: SessionRepository = Depends(get_session_repository),
+    current_user: dict = Depends(require_teacher_role),
+) -> APIResponse[Dict[str, Any]]:
+    """
+    Obtiene la trazabilidad cognitiva N4 de un estudiante específico.
+
+    **Niveles N4:**
+    - N1 (Raw): Datos brutos de interacción
+    - N2 (Preprocessed): Datos preprocesados con contexto
+    - N3 (LLM): Análisis del modelo de IA
+    - N4 (Postprocessed): Síntesis cognitiva final
+
+    **Ejemplo:**
+    ```bash
+    GET /api/v1/teacher/students/student_001/traceability
+    GET /api/v1/teacher/students/student_001/traceability?activity_id=prog2_tp1
+    ```
+    """
+    # Get traces for the student
+    traces = trace_repo.get_by_student_filtered(
+        student_id=student_id,
+        activity_id=activity_id,
+        limit=limit,
+        offset=offset
+    )
+
+    total_count = trace_repo.count_by_student_filtered(
+        student_id=student_id,
+        activity_id=activity_id
+    )
+
+    # Aggregate cognitive state distribution
+    cognitive_states: Dict[str, int] = defaultdict(int)
+    trace_levels: Dict[str, int] = defaultdict(int)
+    interaction_types: Dict[str, int] = defaultdict(int)
+    ai_involvement_values: List[float] = []
+
+    trace_list = []
+    for trace in traces:
+        if trace.cognitive_state:
+            cognitive_states[trace.cognitive_state] += 1
+        if trace.trace_level:
+            trace_levels[trace.trace_level] += 1
+        if trace.interaction_type:
+            interaction_types[trace.interaction_type] += 1
+        if trace.ai_involvement is not None:
+            ai_involvement_values.append(trace.ai_involvement)
+
+        trace_list.append({
+            "id": trace.id,
+            "session_id": trace.session_id,
+            "activity_id": trace.activity_id,
+            "trace_level": trace.trace_level,
+            "interaction_type": trace.interaction_type,
+            "cognitive_state": trace.cognitive_state,
+            "cognitive_intent": trace.cognitive_intent,
+            "decision_justification": trace.decision_justification,
+            "strategy_type": trace.strategy_type,
+            "ai_involvement": trace.ai_involvement,
+            "content": trace.content[:200] + "..." if trace.content and len(trace.content) > 200 else trace.content,
+            "agent_id": trace.agent_id,
+            "created_at": trace.created_at.isoformat() if trace.created_at else None,
+        })
+
+    # Calculate averages
+    avg_ai_involvement = sum(ai_involvement_values) / len(ai_involvement_values) if ai_involvement_values else 0.0
+
+    return APIResponse(
+        success=True,
+        data={
+            "student_id": student_id,
+            "activity_id": activity_id,
+            "total_traces": total_count,
+            "returned_traces": len(trace_list),
+            "pagination": {
+                "offset": offset,
+                "limit": limit,
+                "has_more": (offset + len(trace_list)) < total_count
+            },
+            "summary": {
+                "cognitive_states_distribution": dict(cognitive_states),
+                "trace_levels_distribution": dict(trace_levels),
+                "interaction_types_distribution": dict(interaction_types),
+                "average_ai_involvement": round(avg_ai_involvement, 2),
+                "total_n4_traces": trace_levels.get("N4", 0),
+            },
+            "traces": trace_list
+        },
+        message=f"Trazabilidad de estudiante {student_id}"
+    )
+
+
+@router.get(
+    "/students/{student_id}/cognitive-path",
+    summary="Obtener camino cognitivo de un estudiante",
+    description="Visualiza la evolución cognitiva del estudiante a través de sus sesiones. Requiere rol teacher."
+)
+async def get_student_cognitive_path(
+    student_id: str,
+    session_id: str = Query(None, description="Filtrar por sesión específica"),
+    db: Session = Depends(get_db),
+    trace_repo: TraceRepository = Depends(get_trace_repository),
+    session_repo: SessionRepository = Depends(get_session_repository),
+    current_user: dict = Depends(require_teacher_role),
+) -> APIResponse[Dict[str, Any]]:
+    """
+    Obtiene el camino cognitivo del estudiante mostrando transiciones de estado.
+
+    **Estados cognitivos rastreados:**
+    - INICIO: Inicio de la tarea
+    - EXPLORACION: Explorando el problema
+    - IMPLEMENTACION: Escribiendo código
+    - DEPURACION: Corrigiendo errores
+    - CAMBIO_ESTRATEGIA: Cambiando de enfoque
+    - VALIDACION: Verificando solución
+    - ESTANCAMIENTO: Bloqueado
+    - REFLEXION: Reflexión metacognitiva
+
+    **Ejemplo:**
+    ```bash
+    GET /api/v1/teacher/students/student_001/cognitive-path
+    GET /api/v1/teacher/students/student_001/cognitive-path?session_id=abc123
+    ```
+    """
+    # Get traces ordered by time
+    if session_id:
+        traces = trace_repo.get_by_session(session_id, limit=500)
+    else:
+        traces = trace_repo.get_by_student(student_id, limit=500)
+
+    if not traces:
+        return APIResponse(
+            success=True,
+            data={
+                "student_id": student_id,
+                "session_id": session_id,
+                "cognitive_path": [],
+                "transitions": [],
+                "time_in_states": {},
+                "insights": []
+            },
+            message="No hay trazas para este estudiante"
+        )
+
+    # Build cognitive path
+    cognitive_path = []
+    transitions = []
+    time_in_states: Dict[str, float] = defaultdict(float)
+    prev_state = None
+    prev_time = None
+
+    for trace in traces:
+        current_state = trace.cognitive_state
+        current_time = trace.created_at
+
+        if current_state:
+            cognitive_path.append({
+                "state": current_state,
+                "timestamp": current_time.isoformat() if current_time else None,
+                "ai_involvement": trace.ai_involvement,
+                "trace_level": trace.trace_level,
+                "session_id": trace.session_id,
+            })
+
+            # Track transitions
+            if prev_state and prev_state != current_state:
+                transitions.append({
+                    "from": prev_state,
+                    "to": current_state,
+                    "timestamp": current_time.isoformat() if current_time else None,
+                })
+
+            # Calculate time in each state
+            if prev_state and prev_time and current_time:
+                duration = (current_time - prev_time).total_seconds() / 60.0  # minutes
+                if duration < 120:  # Cap at 2 hours to avoid session breaks
+                    time_in_states[prev_state] += duration
+
+            prev_state = current_state
+            prev_time = current_time
+
+    # Generate insights
+    insights = []
+    if time_in_states:
+        most_time_state = max(time_in_states.items(), key=lambda x: x[1])
+        insights.append(f"Mayor tiempo en estado: {most_time_state[0]} ({most_time_state[1]:.1f} min)")
+
+    if time_in_states.get("ESTANCAMIENTO", 0) > 10:
+        insights.append("Alerta: Tiempo significativo en estado ESTANCAMIENTO")
+
+    blocked_transitions = [t for t in transitions if t["to"] == "ESTANCAMIENTO"]
+    if len(blocked_transitions) > 3:
+        insights.append(f"Patrón: {len(blocked_transitions)} transiciones a ESTANCAMIENTO")
+
+    return APIResponse(
+        success=True,
+        data={
+            "student_id": student_id,
+            "session_id": session_id,
+            "total_states": len(cognitive_path),
+            "unique_states": list(set(s["state"] for s in cognitive_path)),
+            "cognitive_path": cognitive_path[-50:],  # Last 50 states
+            "transitions": transitions[-30:],  # Last 30 transitions
+            "time_in_states": {k: round(v, 2) for k, v in time_in_states.items()},
+            "insights": insights
+        },
+        message=f"Camino cognitivo de estudiante {student_id}"
+    )
+
+
+@router.get(
+    "/traceability/summary",
+    summary="Resumen de trazabilidad de todos los estudiantes",
+    description="Obtiene métricas agregadas de trazabilidad N4 para el dashboard docente. Requiere rol teacher."
+)
+async def get_traceability_summary(
+    activity_id: str = Query(None, description="Filtrar por actividad"),
+    db: Session = Depends(get_db),
+    trace_repo: TraceRepository = Depends(get_trace_repository),
+    session_repo: SessionRepository = Depends(get_session_repository),
+    current_user: dict = Depends(require_teacher_role),
+) -> APIResponse[Dict[str, Any]]:
+    """
+    Obtiene métricas agregadas de trazabilidad N4 para el dashboard del docente.
+
+    **Métricas incluidas:**
+    - Distribución de estados cognitivos global
+    - Estudiantes con alto/bajo uso de IA
+    - Patrones de transición más comunes
+    - Alertas de trazabilidad
+
+    **Ejemplo:**
+    ```bash
+    GET /api/v1/teacher/traceability/summary
+    GET /api/v1/teacher/traceability/summary?activity_id=prog2_tp1
+    ```
+    """
+    # Get all sessions (optionally filtered by activity)
+    if activity_id:
+        sessions = session_repo.get_by_activity(activity_id)
+    else:
+        sessions = session_repo.get_all()
+
+    if not sessions:
+        return APIResponse(
+            success=True,
+            data={
+                "total_students": 0,
+                "total_traces": 0,
+                "cognitive_states_global": {},
+                "ai_dependency_distribution": {},
+                "alerts": []
+            },
+            message="No hay sesiones disponibles"
+        )
+
+    # Batch load traces
+    session_ids = [s.id for s in sessions]
+    traces_by_session = trace_repo.get_by_session_ids(session_ids)
+
+    # Aggregate metrics
+    cognitive_states_global: Dict[str, int] = defaultdict(int)
+    students_ai_high: List[str] = []  # AI > 0.7
+    students_ai_medium: List[str] = []  # AI 0.4-0.7
+    students_ai_low: List[str] = []  # AI < 0.4
+    students_seen: set = set()
+    total_traces = 0
+
+    for session in sessions:
+        traces = traces_by_session.get(session.id, [])
+        total_traces += len(traces)
+
+        if session.student_id not in students_seen:
+            students_seen.add(session.student_id)
+
+            # Calculate AI dependency for this student
+            ai_values = [t.ai_involvement for t in traces if t.ai_involvement is not None]
+            if ai_values:
+                avg_ai = sum(ai_values) / len(ai_values)
+                if avg_ai > 0.7:
+                    students_ai_high.append(session.student_id)
+                elif avg_ai > 0.4:
+                    students_ai_medium.append(session.student_id)
+                else:
+                    students_ai_low.append(session.student_id)
+
+        for trace in traces:
+            if trace.cognitive_state:
+                cognitive_states_global[trace.cognitive_state] += 1
+
+    # Generate alerts based on traceability
+    alerts = []
+    if len(students_ai_high) > 0:
+        alerts.append({
+            "type": "high_ai_dependency",
+            "severity": "warning",
+            "message": f"{len(students_ai_high)} estudiantes con alta dependencia de IA (>70%)",
+            "students": students_ai_high[:5]  # First 5
+        })
+
+    stagnation_count = cognitive_states_global.get("ESTANCAMIENTO", 0)
+    if stagnation_count > 10:
+        alerts.append({
+            "type": "high_stagnation",
+            "severity": "warning",
+            "message": f"{stagnation_count} eventos de estancamiento detectados",
+        })
+
+    return APIResponse(
+        success=True,
+        data={
+            "activity_id": activity_id,
+            "total_students": len(students_seen),
+            "total_traces": total_traces,
+            "cognitive_states_global": dict(cognitive_states_global),
+            "ai_dependency_distribution": {
+                "high": len(students_ai_high),
+                "medium": len(students_ai_medium),
+                "low": len(students_ai_low)
+            },
+            "students_by_ai_dependency": {
+                "high": students_ai_high,
+                "medium": students_ai_medium,
+                "low": students_ai_low
+            },
+            "alerts": alerts
+        },
+        message="Resumen de trazabilidad N4"
+    )

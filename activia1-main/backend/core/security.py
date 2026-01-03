@@ -46,8 +46,9 @@ if not SECRET_KEY:
     else:
         # Development fallback with clear warning
         SECRET_KEY = "dev-only-insecure-key-do-not-use-in-production-123456"
+        # FIX Cortez68 (HIGH-007): Remove emoji from log message (Windows cp1252 encoding issues)
         logger.warning(
-            "⚠️  Using development SECRET_KEY - NOT secure for production!\n"
+            "WARNING: Using development SECRET_KEY - NOT secure for production! "
             "Set JWT_SECRET_KEY in your .env file for production use."
         )
 
@@ -171,27 +172,58 @@ def create_refresh_token(
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
+class TokenError(Exception):
+    """Base exception for token-related errors."""
+    pass
+
+
+class TokenExpiredError(TokenError):
+    """Raised when token has expired."""
+    pass
+
+
+class TokenInvalidError(TokenError):
+    """Raised when token is malformed or has invalid signature."""
+    pass
+
+
+def decode_access_token(token: str, raise_on_error: bool = False) -> Optional[Dict[str, Any]]:
     """
     Decode and validate a JWT token.
 
     Args:
         token: JWT token string
+        raise_on_error: If True, raise specific exceptions instead of returning None
+                       (FIX Cortez68 HIGH-008: Add specific token validation errors)
 
     Returns:
-        Decoded payload dict if valid, None if invalid
+        Decoded payload dict if valid, None if invalid (when raise_on_error=False)
+
+    Raises:
+        TokenExpiredError: When token has expired (only if raise_on_error=True)
+        TokenInvalidError: When token is malformed (only if raise_on_error=True)
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
+    except jwt.ExpiredSignatureError as e:
+        # FIX Cortez68 (HIGH-008): Distinguish expired from invalid tokens
+        logger.debug("JWT expired: %s", e)
+        if raise_on_error:
+            raise TokenExpiredError("Token has expired") from e
+        return None
     except JWTError as e:
         # FIX Cortez36: Use lazy logging formatting
         logger.debug("JWT decode error: %s", e)
+        if raise_on_error:
+            raise TokenInvalidError("Invalid token format or signature") from e
         return None
     except Exception as e:
         # FIX Cortez34: Add exc_info for better debugging
         # FIX Cortez36: Use lazy logging formatting
         logger.error("Token decode error: %s", e, exc_info=True)
+        if raise_on_error:
+            raise TokenInvalidError("Token validation failed") from e
         return None
 
 

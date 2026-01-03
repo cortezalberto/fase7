@@ -2,6 +2,7 @@
  * TutorHeader Component - Header with title and action buttons
  *
  * Cortez43: Extracted from TutorPage.tsx (605 lines)
+ * Cortez65.2: Added academic context display (course_name, commission)
  */
 
 import {
@@ -12,6 +13,8 @@ import {
   Plus,
   ChevronRight,
   ChevronLeft,
+  BookOpen,
+  Users,
 } from 'lucide-react';
 
 interface TutorHeaderProps {
@@ -31,6 +34,10 @@ interface TutorHeaderProps {
   // Panel visibility
   showRiskPanel: boolean;
   onToggleRiskPanel: () => void;
+
+  // Cortez65.2: Academic context
+  courseName?: string;
+  commission?: string;
 }
 
 export function TutorHeader({
@@ -43,6 +50,8 @@ export function TutorHeader({
   onNewSession,
   showRiskPanel,
   onToggleRiskPanel,
+  courseName,
+  commission,
 }: TutorHeaderProps) {
   return (
     <div className="flex items-center justify-between mb-6">
@@ -56,6 +65,23 @@ export function TutorHeader({
             Aprende con guía cognitiva personalizada
           </p>
         </div>
+        {/* Cortez65.2: Academic context badges */}
+        {(courseName || commission) && (
+          <div className="flex items-center gap-2 ml-4 pl-4 border-l border-[var(--border-color)]">
+            {courseName && (
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-medium">
+                <BookOpen className="w-3 h-3" />
+                {courseName}
+              </span>
+            )}
+            {commission && (
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 text-xs font-medium">
+                <Users className="w-3 h-3" />
+                {commission}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -87,7 +113,7 @@ export function TutorHeader({
             <Shield className="w-4 h-4" />
           )}
           <span className="hidden sm:inline">
-            {isLoadingRisks ? 'Analizando...' : 'Ver Reporte'}
+            {isLoadingRisks ? 'Analizando...' : 'Ver Riesgo'}
           </span>
         </button>
 

@@ -42,6 +42,11 @@ class UserDB(Base, BaseModel):
     last_login = Column(DateTime, nullable=True)
     login_count = Column(Integer, default=0, server_default='0')
 
+    # Academic context (Cortez65.2 - for testing without LTI)
+    # These fields allow students to have course/commission info without Moodle integration
+    course_name = Column(String(255), nullable=True)  # Current course name (e.g., "Programación I")
+    commission = Column(String(100), nullable=True)   # Commission code (e.g., "K1021")
+
     # Relationships
     sessions = relationship("SessionDB", back_populates="user", foreign_keys="SessionDB.user_id")
     student_profiles = relationship("StudentProfileDB", back_populates="user", foreign_keys="StudentProfileDB.user_id")

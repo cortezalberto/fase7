@@ -58,7 +58,8 @@ def get_allowed_origins() -> List[str]:
     # Split por comas y limpiar espacios
     origins = [origin.strip() for origin in origins_env.split(",") if origin.strip()]
 
-    logger.info(f"CORS allowed origins configured: {len(origins)} origins")
+    # FIX Cortez69 CRIT-CORE-001: Use lazy logging
+    logger.info("CORS allowed origins configured: %d origins", len(origins))
 
     return origins
 
@@ -146,6 +147,41 @@ logger.info(
     "Training feature flags: TUTOR_HINTS=%s, N4_TRACING=%s, RISK_MONITOR=%s",
     TRAINING_USE_TUTOR_HINTS, TRAINING_N4_TRACING, TRAINING_RISK_MONITOR
 )
+
+
+# =============================================================================
+# LTI 1.3 Configuration (HU-SYS-010)
+# =============================================================================
+# NOTE: LTI router is NOT enabled by default. To enable:
+# 1. Set LTI_ENABLED=true in .env
+# 2. Add router to main.py: app.include_router(lti.router, prefix="/api/v1/lti")
+
+# Master switch for LTI integration
+LTI_ENABLED = os.getenv("LTI_ENABLED", "false").lower() == "true"
+
+# LTI state/nonce expiration (security parameters)
+LTI_STATE_EXPIRATION_MINUTES = int(os.getenv("LTI_STATE_EXPIRATION_MINUTES", "10"))
+LTI_NONCE_EXPIRATION_HOURS = int(os.getenv("LTI_NONCE_EXPIRATION_HOURS", "1"))
+
+# JWKS cache TTL (how long to cache platform's public keys)
+LTI_JWKS_CACHE_TTL_SECONDS = int(os.getenv("LTI_JWKS_CACHE_TTL_SECONDS", "3600"))
+
+# Frontend URL for LTI redirects (after successful launch)
+LTI_FRONTEND_URL = os.getenv("LTI_FRONTEND_URL", "http://localhost:3000")
+
+# RSA key paths for signing our own tokens (for LTI Advantage/AGS)
+# These are optional - only needed if implementing grade passback
+LTI_PRIVATE_KEY_PATH = os.getenv("LTI_PRIVATE_KEY_PATH", "")
+LTI_PUBLIC_KEY_PATH = os.getenv("LTI_PUBLIC_KEY_PATH", "")
+
+# Log LTI configuration status
+if LTI_ENABLED:
+    logger.info(
+        "LTI 1.3 integration: ENABLED (frontend: %s)",
+        LTI_FRONTEND_URL
+    )
+else:
+    logger.info("LTI 1.3 integration: DISABLED (set LTI_ENABLED=true to enable)")
 
 
 # =============================================================================

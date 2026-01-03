@@ -23,10 +23,13 @@ Usage:
     >>> # Generar respuesta
     >>> response = await provider.generate(messages, temperature=0.7)
 """
+import logging
 from typing import Optional, Dict, Any
 
 from .base import LLMProvider
 from .mock import MockLLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class LLMProviderFactory:
@@ -216,8 +219,10 @@ def _register_ollama():
     try:
         from .ollama_provider import OllamaProvider
         LLMProviderFactory.register_provider("ollama", OllamaProvider)
-    except ImportError:
-        pass  # Ollama not available
+        logger.debug("Ollama provider registered successfully")
+    except ImportError as e:
+        # FIX Cortez68 (CRIT-008): Log provider registration failures
+        logger.warning("Failed to register Ollama provider: %s", e)
 
 
 # Register Gemini provider (lazy loading)
@@ -226,8 +231,10 @@ def _register_gemini():
     try:
         from .gemini_provider import GeminiProvider
         LLMProviderFactory.register_provider("gemini", GeminiProvider)
-    except ImportError:
-        pass  # Gemini not available
+        logger.debug("Gemini provider registered successfully")
+    except ImportError as e:
+        # FIX Cortez68 (CRIT-008): Log provider registration failures
+        logger.warning("Failed to register Gemini provider: %s", e)
 
 
 # Register Mistral provider (lazy loading)
@@ -236,8 +243,10 @@ def _register_mistral():
     try:
         from .mistral_provider import MistralProvider
         LLMProviderFactory.register_provider("mistral", MistralProvider)
-    except ImportError:
-        pass  # Mistral not available
+        logger.debug("Mistral provider registered successfully")
+    except ImportError as e:
+        # FIX Cortez68 (CRIT-008): Log provider registration failures
+        logger.warning("Failed to register Mistral provider: %s", e)
 
 
 # Auto-register available providers

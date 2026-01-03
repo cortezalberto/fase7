@@ -32,7 +32,16 @@ import {
   XCircle,
   RefreshCw,
   MoreVertical,
+  PlusCircle,
+  GripVertical,
 } from 'lucide-react';
+
+// Tipo para ejercicios (detalles de la actividad)
+interface ExerciseDetail {
+  id: string;
+  numero: number;
+  enunciado: string;
+}
 
 type TabType = 'all' | 'draft' | 'active' | 'archived';
 
@@ -70,6 +79,33 @@ export default function ActivityManagementPage() {
     policies: defaultPolicies,
     evaluation_criteria: [],
   });
+
+  // Estado para ejercicios (detalles)
+  const [exercises, setExercises] = useState<ExerciseDetail[]>([]);
+
+  // Agregar nuevo ejercicio
+  const addExercise = () => {
+    const newExercise: ExerciseDetail = {
+      id: `ex_${Date.now()}`,
+      numero: exercises.length + 1,
+      enunciado: '',
+    };
+    setExercises([...exercises, newExercise]);
+  };
+
+  // Actualizar ejercicio
+  const updateExercise = (id: string, field: keyof ExerciseDetail, value: string | number) => {
+    setExercises(exercises.map(ex =>
+      ex.id === id ? { ...ex, [field]: value } : ex
+    ));
+  };
+
+  // Eliminar ejercicio
+  const removeExercise = (id: string) => {
+    const updatedExercises = exercises.filter(ex => ex.id !== id);
+    // Renumerar ejercicios
+    setExercises(updatedExercises.map((ex, idx) => ({ ...ex, numero: idx + 1 })));
+  };
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -239,6 +275,7 @@ export default function ActivityManagementPage() {
       policies: defaultPolicies,
       evaluation_criteria: [],
     });
+    setExercises([]);
   };
 
   const getStatusColor = (status: string) => {
@@ -484,10 +521,10 @@ export default function ActivityManagementPage() {
         </div>
       )}
 
-      {/* Create Modal */}
+      {/* Create Modal - Maestro-Detalle */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] max-w-5xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-[var(--text-primary)]">
@@ -501,8 +538,14 @@ export default function ActivityManagementPage() {
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              {/* Seccion Cabecera (Maestro) */}
+              <div className="bg-[var(--bg-secondary)] rounded-xl p-5 mb-6">
+                <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-[var(--accent-primary)]" />
+                  Datos de la Actividad
+                </h3>
+
+                <div className="grid grid-cols-3 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                       ID de Actividad *
@@ -512,7 +555,19 @@ export default function ActivityManagementPage() {
                       value={formData.activity_id}
                       onChange={(e) => setFormData({ ...formData, activity_id: e.target.value })}
                       placeholder="ej: prog2_tp1_colas"
-                      className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Titulo *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="Titulo de la actividad"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
@@ -524,51 +579,39 @@ export default function ActivityManagementPage() {
                       value={formData.subject}
                       onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                       placeholder="ej: Programacion II"
-                      className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Titulo *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Titulo de la actividad"
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Descripcion
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={2}
+                      placeholder="Descripcion breve de la actividad"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Instrucciones Generales *
+                    </label>
+                    <textarea
+                      value={formData.instructions}
+                      onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
+                      rows={2}
+                      placeholder="Instrucciones generales para los estudiantes"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Descripcion
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={2}
-                    placeholder="Descripcion breve de la actividad"
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Instrucciones *
-                  </label>
-                  <textarea
-                    value={formData.instructions}
-                    onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
-                    rows={4}
-                    placeholder="Instrucciones detalladas para los estudiantes"
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                       Dificultad
@@ -576,7 +619,7 @@ export default function ActivityManagementPage() {
                     <select
                       value={formData.difficulty}
                       onChange={(e) => setFormData({ ...formData, difficulty: e.target.value as ActivityDifficulty })}
-                      className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
                     >
                       <option value={ActivityDifficulty.INICIAL}>Inicial</option>
                       <option value={ActivityDifficulty.INTERMEDIO}>Intermedio</option>
@@ -585,7 +628,7 @@ export default function ActivityManagementPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                      Duracion Estimada (min)
+                      Duracion (min)
                     </label>
                     <input
                       type="number"
@@ -593,112 +636,174 @@ export default function ActivityManagementPage() {
                       onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value) })}
                       min={5}
                       max={480}
-                      className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Nivel Max. Ayuda
+                    </label>
+                    <select
+                      value={formData.policies?.max_help_level || HelpLevel.MEDIO}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, max_help_level: e.target.value as HelpLevel }
+                      })}
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    >
+                      <option value={HelpLevel.MINIMO}>Minimo</option>
+                      <option value={HelpLevel.BAJO}>Bajo</option>
+                      <option value={HelpLevel.MEDIO}>Medio</option>
+                      <option value={HelpLevel.ALTO}>Alto</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Etiquetas
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tags?.join(', ') || ''}
+                      onChange={(e) => setFormData({ ...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                      placeholder="colas, fifo..."
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Etiquetas (separadas por coma)
+                <div className="flex flex-wrap gap-4 mt-4">
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.block_complete_solutions ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, block_complete_solutions: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Bloquear soluciones completas
                   </label>
-                  <input
-                    type="text"
-                    value={formData.tags?.join(', ') || ''}
-                    onChange={(e) => setFormData({ ...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
-                    placeholder="ej: estructuras, colas, fifo"
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.require_justification ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, require_justification: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Requerir justificacion
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.allow_code_snippets ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, allow_code_snippets: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Permitir fragmentos de codigo
+                  </label>
+                </div>
+              </div>
+
+              {/* Seccion Ejercicios (Detalle) */}
+              <div className="bg-[var(--bg-secondary)] rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-[var(--text-primary)] flex items-center gap-2">
+                    <Edit className="w-5 h-5 text-emerald-500" />
+                    Ejercicios
+                    {exercises.length > 0 && (
+                      <span className="ml-2 px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-sm rounded-full">
+                        {exercises.length}
+                      </span>
+                    )}
+                  </h3>
+                  <button
+                    onClick={addExercise}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors"
+                  >
+                    <PlusCircle className="w-5 h-5" />
+                    Agregar Ejercicio
+                  </button>
                 </div>
 
-                <div className="border-t border-[var(--border-color)] pt-4">
-                  <h4 className="text-sm font-medium text-[var(--text-primary)] mb-3">Politicas de IA</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-[var(--text-secondary)] mb-1">
-                        Nivel Maximo de Ayuda
-                      </label>
-                      <select
-                        value={formData.policies?.max_help_level || HelpLevel.MEDIO}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          policies: { ...formData.policies!, max_help_level: e.target.value as HelpLevel }
-                        })}
-                        className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                {exercises.length === 0 ? (
+                  <div className="text-center py-8 border-2 border-dashed border-[var(--border-color)] rounded-xl">
+                    <PlusCircle className="w-12 h-12 mx-auto mb-3 text-[var(--text-muted)] opacity-50" />
+                    <p className="text-[var(--text-muted)]">
+                      No hay ejercicios agregados
+                    </p>
+                    <p className="text-sm text-[var(--text-muted)] mt-1">
+                      Haz clic en "Agregar Ejercicio" para comenzar
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {exercises.map((exercise) => (
+                      <div
+                        key={exercise.id}
+                        className="flex items-start gap-3 p-4 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-color)] hover:border-[var(--border-light)] transition-colors"
                       >
-                        <option value={HelpLevel.MINIMO}>Minimo</option>
-                        <option value={HelpLevel.BAJO}>Bajo</option>
-                        <option value={HelpLevel.MEDIO}>Medio</option>
-                        <option value={HelpLevel.ALTO}>Alto</option>
-                      </select>
-                    </div>
-                    <div className="flex flex-col justify-end">
-                      <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                        <input
-                          type="checkbox"
-                          checked={formData.policies?.require_justification ?? true}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            policies: { ...formData.policies!, require_justification: e.target.checked }
-                          })}
-                          className="rounded"
-                        />
-                        Requerir justificacion
-                      </label>
-                    </div>
+                        <div className="flex items-center gap-2 pt-2">
+                          <GripVertical className="w-4 h-4 text-[var(--text-muted)] cursor-grab" />
+                          <div className="w-8 h-8 flex items-center justify-center bg-emerald-500/20 text-emerald-400 rounded-full font-semibold text-sm">
+                            {exercise.numero}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                            Enunciado del Ejercicio {exercise.numero}
+                          </label>
+                          <textarea
+                            value={exercise.enunciado}
+                            onChange={(e) => updateExercise(exercise.id, 'enunciado', e.target.value)}
+                            rows={3}
+                            placeholder="Escribe el enunciado del ejercicio aqui..."
+                            className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] text-sm resize-none focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <button
+                          onClick={() => removeExercise(exercise.id)}
+                          className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors mt-1"
+                          title="Eliminar ejercicio"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-4 mt-3">
-                    <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={formData.policies?.block_complete_solutions ?? true}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          policies: { ...formData.policies!, block_complete_solutions: e.target.checked }
-                        })}
-                        className="rounded"
-                      />
-                      Bloquear soluciones completas
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={formData.policies?.allow_code_snippets ?? true}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          policies: { ...formData.policies!, allow_code_snippets: e.target.checked }
-                        })}
-                        className="rounded"
-                      />
-                      Permitir fragmentos de codigo
-                    </label>
-                  </div>
-                </div>
+                )}
+              </div>
 
-                <div className="flex gap-3 pt-4">
-                  <button
-                    onClick={() => { setShowCreateModal(false); resetForm(); }}
-                    className="flex-1 px-4 py-2 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-hover)]"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleCreateActivity}
-                    className="flex-1 px-4 py-2 bg-[var(--accent-primary)] text-white rounded-lg hover:opacity-90"
-                  >
-                    Crear Actividad
-                  </button>
-                </div>
+              {/* Botones de accion */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => { setShowCreateModal(false); resetForm(); }}
+                  className="flex-1 px-4 py-3 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCreateActivity}
+                  className="flex-1 px-4 py-3 bg-[var(--accent-primary)] text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+                >
+                  Crear Actividad
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Modal - Similar to Create but with Update logic */}
+      {/* Edit Modal - Maestro-Detalle */}
       {showEditModal && selectedActivity && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] max-w-5xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-[var(--text-primary)]">
@@ -712,57 +817,261 @@ export default function ActivityManagementPage() {
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    ID de Actividad (no editable)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.activity_id}
-                    disabled
-                    className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-muted)]"
-                  />
+              {/* Seccion Cabecera (Maestro) */}
+              <div className="bg-[var(--bg-secondary)] rounded-xl p-5 mb-6">
+                <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-[var(--accent-primary)]" />
+                  Datos de la Actividad
+                </h3>
+
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      ID de Actividad
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.activity_id}
+                      disabled
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-muted)] cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Titulo *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      placeholder="Titulo de la actividad"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Materia
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      placeholder="ej: Programacion II"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Titulo
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Descripcion
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={2}
+                      placeholder="Descripcion breve de la actividad"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Instrucciones Generales *
+                    </label>
+                    <textarea
+                      value={formData.instructions}
+                      onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
+                      rows={2}
+                      placeholder="Instrucciones generales para los estudiantes"
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-                    Instrucciones
-                  </label>
-                  <textarea
-                    value={formData.instructions}
-                    onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
-                    rows={4}
-                    className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-                  />
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Dificultad
+                    </label>
+                    <select
+                      value={formData.difficulty}
+                      onChange={(e) => setFormData({ ...formData, difficulty: e.target.value as ActivityDifficulty })}
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    >
+                      <option value={ActivityDifficulty.INICIAL}>Inicial</option>
+                      <option value={ActivityDifficulty.INTERMEDIO}>Intermedio</option>
+                      <option value={ActivityDifficulty.AVANZADO}>Avanzado</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Duracion (min)
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.estimated_duration_minutes}
+                      onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value) })}
+                      min={5}
+                      max={480}
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Nivel Max. Ayuda
+                    </label>
+                    <select
+                      value={formData.policies?.max_help_level || HelpLevel.MEDIO}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, max_help_level: e.target.value as HelpLevel }
+                      })}
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    >
+                      <option value={HelpLevel.MINIMO}>Minimo</option>
+                      <option value={HelpLevel.BAJO}>Bajo</option>
+                      <option value={HelpLevel.MEDIO}>Medio</option>
+                      <option value={HelpLevel.ALTO}>Alto</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+                      Etiquetas
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tags?.join(', ') || ''}
+                      onChange={(e) => setFormData({ ...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                      placeholder="colas, fifo..."
+                      className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex flex-wrap gap-4 mt-4">
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.block_complete_solutions ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, block_complete_solutions: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Bloquear soluciones completas
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.require_justification ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, require_justification: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Requerir justificacion
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={formData.policies?.allow_code_snippets ?? true}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        policies: { ...formData.policies!, allow_code_snippets: e.target.checked }
+                      })}
+                      className="rounded"
+                    />
+                    Permitir fragmentos de codigo
+                  </label>
+                </div>
+              </div>
+
+              {/* Seccion Ejercicios (Detalle) */}
+              <div className="bg-[var(--bg-secondary)] rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-[var(--text-primary)] flex items-center gap-2">
+                    <Edit className="w-5 h-5 text-emerald-500" />
+                    Ejercicios
+                    {exercises.length > 0 && (
+                      <span className="ml-2 px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-sm rounded-full">
+                        {exercises.length}
+                      </span>
+                    )}
+                  </h3>
                   <button
-                    onClick={() => { setShowEditModal(false); setSelectedActivity(null); resetForm(); }}
-                    className="flex-1 px-4 py-2 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-hover)]"
+                    onClick={addExercise}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors"
                   >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleUpdateActivity}
-                    className="flex-1 px-4 py-2 bg-[var(--accent-primary)] text-white rounded-lg hover:opacity-90"
-                  >
-                    Guardar Cambios
+                    <PlusCircle className="w-5 h-5" />
+                    Agregar Ejercicio
                   </button>
                 </div>
+
+                {exercises.length === 0 ? (
+                  <div className="text-center py-8 border-2 border-dashed border-[var(--border-color)] rounded-xl">
+                    <PlusCircle className="w-12 h-12 mx-auto mb-3 text-[var(--text-muted)] opacity-50" />
+                    <p className="text-[var(--text-muted)]">
+                      No hay ejercicios agregados
+                    </p>
+                    <p className="text-sm text-[var(--text-muted)] mt-1">
+                      Haz clic en "Agregar Ejercicio" para comenzar
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {exercises.map((exercise) => (
+                      <div
+                        key={exercise.id}
+                        className="flex items-start gap-3 p-4 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-color)] hover:border-[var(--border-light)] transition-colors"
+                      >
+                        <div className="flex items-center gap-2 pt-2">
+                          <GripVertical className="w-4 h-4 text-[var(--text-muted)] cursor-grab" />
+                          <div className="w-8 h-8 flex items-center justify-center bg-emerald-500/20 text-emerald-400 rounded-full font-semibold text-sm">
+                            {exercise.numero}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                            Enunciado del Ejercicio {exercise.numero}
+                          </label>
+                          <textarea
+                            value={exercise.enunciado}
+                            onChange={(e) => updateExercise(exercise.id, 'enunciado', e.target.value)}
+                            rows={3}
+                            placeholder="Escribe el enunciado del ejercicio aqui..."
+                            className="w-full px-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] text-sm resize-none focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <button
+                          onClick={() => removeExercise(exercise.id)}
+                          className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors mt-1"
+                          title="Eliminar ejercicio"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de accion */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => { setShowEditModal(false); setSelectedActivity(null); resetForm(); }}
+                  className="flex-1 px-4 py-3 bg-[var(--bg-secondary)] text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleUpdateActivity}
+                  className="flex-1 px-4 py-3 bg-[var(--accent-primary)] text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
+                >
+                  Guardar Cambios
+                </button>
               </div>
             </div>
           </div>

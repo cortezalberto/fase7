@@ -46,6 +46,34 @@ export { adminService } from './admin.service';
 export { cognitivePathService } from './cognitivePath.service';
 export { institutionalRisksService } from './institutionalRisks.service';
 export { trainingService } from './training.service';
+export { ltiService } from './lti.service';
+// LTI Types (HU-SYS-010)
+export type {
+  LTIDeployment,
+  LTISession,
+  LTIContext,
+  LTIHealthStatus,
+  CreateDeploymentRequest,
+} from './lti.service';
+export { teacherTraceabilityService } from './teacherTraceability.service';
+// Teacher Traceability Types (Cortez63)
+export type {
+  TraceLevel,
+  CognitiveState,
+  TraceData,
+  PaginationInfo,
+  TraceabilitySummary,
+  StudentTraceabilityResponse,
+  CognitivePathState,
+  CognitiveTransition,
+  StudentCognitivePathResponse,
+  AIDependencyDistribution,
+  TraceabilityAlert,
+  TraceabilitySummaryResponse,
+  StudentTraceabilityParams,
+  CognitivePathParams,
+  TraceabilitySummaryParams,
+} from './teacherTraceability.service';
 // V1 Types (Legacy)
 export type {
   TemaInfo,

@@ -34,7 +34,8 @@ const ToastContext = createContext<ToastContextType | null>(null);
  *
  * Uses the new React 19 `use()` hook for reading context.
  */
-// eslint-disable-next-line react-refresh/only-export-components
+// FIX Cortez71 LOW-011: Disable needed - useToast is a hook exported alongside ToastProvider
+// eslint-disable-next-line react-refresh/only-export-components -- Custom hook co-located with context provider
 export const useToast = (): ToastContextType => {
   const context = use(ToastContext);
   if (!context) {

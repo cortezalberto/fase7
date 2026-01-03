@@ -261,6 +261,7 @@ async def get_interaction_history(
     session_id: str,
     session_repo: SessionRepository = Depends(get_session_repository),
     trace_repo: TraceRepository = Depends(get_trace_repository),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-003
 ) -> APIResponse[InteractionHistory]:
     """
     Obtiene el historial de interacciones de una sesión.

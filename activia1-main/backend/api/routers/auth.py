@@ -123,6 +123,9 @@ class UserResponseSchema(BaseModel):
     roles: List[str]
     is_active: bool
     created_at: Optional[str] = None
+    # Cortez65.2: Academic context for testing without LTI
+    course_name: Optional[str] = None
+    commission: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -194,8 +197,26 @@ def _create_token_pair(user_id: str) -> TokensSchema:
     )
 
 
-def _user_to_response(user: User) -> UserResponseSchema:
-    """Convert User ORM model to response schema"""
+def _user_to_response(user) -> UserResponseSchema:
+    """
+    Convert User ORM model or user dict to response schema.
+
+    FIX Cortez69 HIGH-API-002: Accept both User ORM and dict from get_current_user.
+    """
+    # Support both ORM model (dot notation) and dict (bracket notation)
+    if isinstance(user, dict):
+        return UserResponseSchema(
+            id=user.get("user_id") or user.get("id"),
+            username=user.get("username"),
+            email=user.get("email"),
+            full_name=user.get("full_name"),
+            roles=user.get("roles") or [],
+            is_active=user.get("is_active", True),
+            created_at=user.get("created_at"),
+            course_name=user.get("course_name"),
+            commission=user.get("commission"),
+        )
+    # ORM model path (used in login/register responses)
     return UserResponseSchema(
         id=user.id,
         username=user.username,
@@ -203,7 +224,10 @@ def _user_to_response(user: User) -> UserResponseSchema:
         full_name=user.full_name,
         roles=user.roles or [],
         is_active=user.is_active,
-        created_at=user.created_at.isoformat() if hasattr(user, 'created_at') and user.created_at else None
+        created_at=user.created_at.isoformat() if hasattr(user, 'created_at') and user.created_at else None,
+        # Cortez65.2: Academic context
+        course_name=getattr(user, 'course_name', None),
+        commission=getattr(user, 'commission', None),
     )
 
 
@@ -430,7 +454,7 @@ async def refresh_token(
     summary="Get current user",
     description="Get current authenticated user information"
 )
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: dict = Depends(get_current_user)):  # FIX Cortez69 HIGH-API-002
     """Get current authenticated user information"""
     return APIResponse(
         success=True,

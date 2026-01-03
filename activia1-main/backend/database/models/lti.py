@@ -80,6 +80,7 @@ class LTISessionDB(Base, BaseModel):
 
     # LTI resource link (activity within course)
     resource_link_id = Column(String(255), nullable=False, index=True)
+    resource_link_title = Column(String(255), nullable=True)  # Activity name from Moodle
 
     # Mapped to AI-Native session
     # DB-7 NOTE: session_id is intentionally nullable. An LTI launch from Moodle

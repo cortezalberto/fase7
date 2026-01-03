@@ -134,6 +134,42 @@ class BaseRepository:
     Base class for all repositories.
 
     Provides common database session handling.
+
+    Standard Method Naming Conventions (Cortez66):
+    ==============================================
+
+    CRUD Operations:
+    - create()             Create new record
+    - get_by_id()          Get by internal UUID (primary key)
+    - get_by_*()           Get by other fields (e.g., get_by_student())
+    - get_all()            Get all records with optional filters
+    - update()             Modify record
+    - delete()             Remove record (hard delete)
+    - soft_delete()        Mark as deleted without removing
+    - restore()            Restore soft-deleted record
+
+    Batch Operations:
+    - get_by_ids()         Get multiple by internal UUIDs
+    - get_by_*_ids()       Get multiple by specific field (e.g., get_by_session_ids())
+    - create_batch()       Create multiple records
+
+    Count Operations:
+    - count_by_*()         Count records by filter
+
+    State Transitions (domain-specific):
+    - end_session()        Session lifecycle
+    - publish()            Activity lifecycle
+    - archive()            Activity lifecycle
+    - resolve_*()          Risk/Alert domain
+    - complete_*()         Complete an entity (interview, plan, etc.)
+
+    Association Operations:
+    - link_to_*()          Create association
+    - unlink_from_*()      Remove association
+    - append_*()           Add to collection (e.g., append_question())
+
+    Note: get_by_id() always retrieves by internal UUID.
+    For business keys, use specific methods like get_by_activity_id().
     """
 
     def __init__(self, db_session: Session):

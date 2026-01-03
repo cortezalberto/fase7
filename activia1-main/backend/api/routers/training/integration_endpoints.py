@@ -78,7 +78,7 @@ async def solicitar_pista_v2(
     request: SolicitarPistaV2Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 HIGH-API-002
     llm_provider: Optional[Any] = Depends(get_llm_provider),
 ):
     """
@@ -326,7 +326,8 @@ async def _record_hint_trace(
         )
         logger.debug("Hint trace recorded for session %s", session_id)
     except Exception as e:
-        logger.error("Failed to record hint trace: %s", e)
+        # FIX Cortez67 (MEDIUM-002): Add exc_info for stack trace
+        logger.error("Failed to record hint trace: %s", e, exc_info=True)
 
 
 # =============================================================================
@@ -338,7 +339,7 @@ async def capturar_reflexion(
     request: ReflexionRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 HIGH-API-002
 ):
     """
     Captura la reflexion post-ejercicio del estudiante.
@@ -488,7 +489,8 @@ async def _record_reflection_trace(
         )
         logger.debug("Reflection trace %s recorded for session %s", trace_id, session_id)
     except Exception as e:
-        logger.error("Failed to record reflection trace: %s", e)
+        # FIX Cortez67 (MEDIUM-002): Add exc_info for stack trace
+        logger.error("Failed to record reflection trace: %s", e, exc_info=True)
 
 
 # =============================================================================
@@ -500,7 +502,7 @@ async def obtener_analisis_proceso(
     session_id: str,
     request: ProcesoRequest = Depends(),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 HIGH-API-002
 ):
     """
     Obtiene el analisis del proceso cognitivo de una sesion.
@@ -672,7 +674,7 @@ async def submit_ejercicio_v2(
     request: SubmitEjercicioV2Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 HIGH-API-002
 ):
     """
     Envia codigo con contexto adicional para trazabilidad.
@@ -828,4 +830,5 @@ async def _record_attempt_trace(
         )
         logger.debug("Attempt trace %s recorded for session %s", trace_id, session_id)
     except Exception as e:
-        logger.error("Failed to record attempt trace: %s", e)
+        # FIX Cortez67 (MEDIUM-002): Add exc_info for stack trace
+        logger.error("Failed to record attempt trace: %s", e, exc_info=True)

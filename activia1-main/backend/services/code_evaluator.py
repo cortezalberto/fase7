@@ -22,7 +22,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from ..llm.base import LLMProvider
@@ -183,7 +183,8 @@ class CodeEvaluator:
             evaluation_result['metadata'] = {
                 'exercise_id': exercise['id'],
                 'student_id': student_id,
-                'evaluated_at': datetime.utcnow().isoformat(),
+                # FIX Cortez68 (MEDIUM): Use timezone-aware datetime
+                'evaluated_at': datetime.now(timezone.utc).isoformat(),
                 'evaluator_version': '1.0',
                 'llm_model': response.model
             }

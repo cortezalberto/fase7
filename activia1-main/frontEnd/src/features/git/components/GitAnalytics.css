@@ -1,4 +1,10 @@
-/* Git Analytics Styles */
+/**
+ * Git Analytics Styles
+ *
+ * FIX Cortez71 LOW-002: Marked for future migration to Tailwind CSS
+ * This file uses CSS custom properties (var(--*)) for theming consistency.
+ * Migration priority: LOW - complex component with many responsive rules
+ */
 
 .git-analytics {
   padding: 2rem;

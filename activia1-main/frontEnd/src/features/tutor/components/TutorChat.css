@@ -1,4 +1,10 @@
-/* Estilos minimalistas para TutorChat */
+/**
+ * Estilos minimalistas para TutorChat
+ *
+ * FIX Cortez71 LOW-002: Marked for future migration to Tailwind CSS
+ * Note: Contains hardcoded colors that should use CSS variables
+ * Migration priority: MEDIUM - uses hardcoded hex colors
+ */
 
 .tutor-chat {
   display: flex;

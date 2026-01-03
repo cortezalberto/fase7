@@ -251,7 +251,7 @@ async def obtener_materias_disponibles(db: Session = Depends(get_db)):
 async def iniciar_entrenamiento(
     request: IniciarEntrenamientoRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """
     Inicia una nueva sesión de entrenamiento.
@@ -355,7 +355,7 @@ async def iniciar_entrenamiento(
 @router.post("/pista", response_model=PistaResponse)
 async def solicitar_pista(
     request: SolicitarPistaRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """
     Solicita una pista para el ejercicio actual
@@ -493,7 +493,7 @@ async def get_exercise_details(
 async def submit_ejercicio(
     request: SubmitEjercicioRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """
     Cortez56: Endpoint V1 legacy para enviar código de un ejercicio.
@@ -615,7 +615,7 @@ async def submit_ejercicio(
 async def corregir_con_ia(
     request: CorreccionIARequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002,
     llm_provider = Depends(get_llm_provider)
 ):
     """
@@ -730,7 +730,7 @@ Responde en formato JSON:
 @router.get("/sesion/{session_id}/estado", response_model=SesionEntrenamientoExtendida)
 async def obtener_estado_sesion(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """
     Cortez56: Obtiene el estado actual de una sesión de entrenamiento.

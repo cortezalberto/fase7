@@ -22,6 +22,8 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   /** Title icon (optional) */
   icon?: ReactNode;
+  /** Custom inline styles for the modal content wrapper */
+  contentStyle?: React.CSSProperties;
 }
 
 const sizeClasses = {
@@ -47,7 +49,8 @@ export function Modal({
   className = '',
   showCloseButton = true,
   size = 'md',
-  icon
+  icon,
+  contentStyle
 }: ModalProps) {
   // FE-A11Y-001: Close on Escape key
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
@@ -86,6 +89,7 @@ export function Modal({
     >
       <div
         className={`bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] ${sizeClasses[size]} w-full animate-scaleIn ${className}`}
+        style={contentStyle}
       >
         {/* Header */}
         {(title || showCloseButton) && (

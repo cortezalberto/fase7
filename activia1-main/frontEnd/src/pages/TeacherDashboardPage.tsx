@@ -12,21 +12,23 @@
  * - GET /api/v1/reports/analytics - Metricas de aprendizaje
  * - GET /api/v1/admin/risks/dashboard - Dashboard de riesgos
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   reportsService,
   institutionalRisksService,
+  teacherTraceabilityService,
   LearningAnalytics,
   RiskDashboard,
+  TraceabilitySummaryResponse,
 } from '../services/api';
 import apiClient from '../services/api/client';
 import {
   Users,
   AlertTriangle,
   Activity,
-  BookOpen,
+  // FIX Cortez71 MED-006: Removed unused BookOpen import
   FileText,
   Shield,
   ArrowRight,
@@ -34,6 +36,8 @@ import {
   CheckCircle,
   Eye,
   Bell,
+  GitBranch,
+  Brain,
 } from 'lucide-react';
 
 interface TeacherAlert {
@@ -79,7 +83,9 @@ export default function TeacherDashboardPage() {
   const { user } = useAuth();
   const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [analytics, setAnalytics] = useState<LearningAnalytics | null>(null);
-  const [riskDashboard, setRiskDashboard] = useState<RiskDashboard | null>(null);
+  // FIX Cortez71 MED-006: Prefixed with _ to indicate intentionally unused (for future risk section)
+  const [_riskDashboard, setRiskDashboard] = useState<RiskDashboard | null>(null);
+  const [traceabilitySummary, setTraceabilitySummary] = useState<TraceabilitySummaryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,10 +97,11 @@ export default function TeacherDashboardPage() {
         setError(null);
 
         // Fetch all data in parallel
-        const [alertsRes, analyticsRes, riskRes] = await Promise.allSettled([
+        const [alertsRes, analyticsRes, riskRes, traceabilityRes] = await Promise.allSettled([
           apiClient.get<{ data: AlertsResponse }>('/teacher/alerts'),
           reportsService.getLearningAnalytics('month'),
           institutionalRisksService.getDashboard(),
+          teacherTraceabilityService.getTraceabilitySummary(),
         ]);
 
         if (!abortController.signal.aborted) {
@@ -112,6 +119,11 @@ export default function TeacherDashboardPage() {
           // Handle risk dashboard
           if (riskRes.status === 'fulfilled') {
             setRiskDashboard(riskRes.value);
+          }
+
+          // Handle traceability summary (Cortez63)
+          if (traceabilityRes.status === 'fulfilled') {
+            setTraceabilitySummary(traceabilityRes.value);
           }
         }
       } catch (err) {
@@ -159,15 +171,17 @@ export default function TeacherDashboardPage() {
       link: '/teacher/monitoring',
     },
     {
-      title: 'Riesgos Pendientes',
-      value: riskDashboard?.summary.pending_alerts || 0,
-      change: riskDashboard?.summary.resolved_this_week ? `${riskDashboard.summary.resolved_this_week} resueltos esta semana` : 'Sin datos',
-      changeType: 'neutral',
-      icon: Shield,
-      color: 'from-purple-500 to-pink-600',
-      link: '/teacher/risks',
+      title: 'Trazas N4',
+      value: traceabilitySummary?.total_traces || 0,
+      change: traceabilitySummary?.ai_dependency_distribution.high
+        ? `${traceabilitySummary.ai_dependency_distribution.high} alta dep. IA`
+        : 'Sin alertas',
+      changeType: traceabilitySummary?.ai_dependency_distribution.high ? 'negative' : 'positive',
+      icon: GitBranch,
+      color: 'from-indigo-500 to-purple-600',
+      link: '/teacher/monitoring',
     },
-  ], [alerts, analytics, riskDashboard]);
+  ], [alerts, analytics, traceabilitySummary]);
 
   const quickActions = [
     {
@@ -176,6 +190,13 @@ export default function TeacherDashboardPage() {
       icon: Eye,
       path: '/teacher/monitoring',
       gradient: 'from-indigo-500 to-purple-600',
+    },
+    {
+      title: 'Trazabilidad N4',
+      description: 'Analisis cognitivo de estudiantes',
+      icon: GitBranch,
+      path: '/teacher/monitoring?tab=traceability',
+      gradient: 'from-purple-500 to-pink-600',
     },
     {
       title: 'Generar Reportes',
@@ -190,13 +211,6 @@ export default function TeacherDashboardPage() {
       icon: Shield,
       path: '/teacher/risks',
       gradient: 'from-orange-500 to-red-600',
-    },
-    {
-      title: 'Actividades',
-      description: 'Gestionar actividades y ejercicios',
-      icon: BookOpen,
-      path: '/teacher/activities',
-      gradient: 'from-cyan-500 to-blue-600',
     },
   ];
 
@@ -407,17 +421,124 @@ export default function TeacherDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Traceability Summary (Cortez63) */}
+      {traceabilitySummary && Object.keys(traceabilitySummary.cognitive_states_global).length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-500" />
+              Trazabilidad Cognitiva N4
+            </h2>
+            <Link
+              to="/teacher/monitoring"
+              className="text-sm text-[var(--accent-primary)] hover:text-[var(--accent-secondary)] flex items-center gap-1"
+            >
+              Ver detalle
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Cognitive States Distribution */}
+            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] p-6">
+              <h3 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                Estados Cognitivos Detectados
+              </h3>
+              <div className="space-y-3">
+                {Object.entries(traceabilitySummary.cognitive_states_global)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 5)
+                  .map(([state, count]) => {
+                    const maxCount = Math.max(...Object.values(traceabilitySummary.cognitive_states_global));
+                    const percentage = (count / maxCount) * 100;
+
+                    return (
+                      <div key={state}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm text-[var(--text-primary)]">{state}</span>
+                          <span className="text-xs text-[var(--text-muted)]">{count}</span>
+                        </div>
+                        <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* AI Dependency Distribution */}
+            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] p-6">
+              <h3 className="text-sm font-medium text-[var(--text-muted)] mb-4">
+                Dependencia de IA por Estudiantes
+              </h3>
+              <div className="flex items-center justify-center gap-8 py-4">
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mb-2 mx-auto">
+                    <span className="text-2xl font-bold text-red-500">
+                      {traceabilitySummary.ai_dependency_distribution.high}
+                    </span>
+                  </div>
+                  <span className="text-xs text-[var(--text-muted)]">Alta (&gt;70%)</span>
+                </div>
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mb-2 mx-auto">
+                    <span className="text-2xl font-bold text-yellow-500">
+                      {traceabilitySummary.ai_dependency_distribution.medium}
+                    </span>
+                  </div>
+                  <span className="text-xs text-[var(--text-muted)]">Media (40-70%)</span>
+                </div>
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-green-500/10 flex items-center justify-center mb-2 mx-auto">
+                    <span className="text-2xl font-bold text-green-500">
+                      {traceabilitySummary.ai_dependency_distribution.low}
+                    </span>
+                  </div>
+                  <span className="text-xs text-[var(--text-muted)]">Baja (&lt;40%)</span>
+                </div>
+              </div>
+
+              {/* FIX Cortez71 HIGH-005: Use stable key based on message content */}
+              {/* Traceability Alerts */}
+              {traceabilitySummary.alerts.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
+                  <div className="space-y-2">
+                    {traceabilitySummary.alerts.slice(0, 2).map((alert) => (
+                      <div
+                        key={`alert-${alert.type}-${alert.message.slice(0, 30)}`}
+                        className={`flex items-start gap-2 p-2 rounded-lg text-xs ${
+                          alert.severity === 'critical'
+                            ? 'bg-red-500/10 text-red-400'
+                            : 'bg-yellow-500/10 text-yellow-400'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>{alert.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Helper component for stat cards
-function StatCardContent({ stat }: { stat: StatCard }) {
+// FIX Cortez71 LOW-012: Memoized pure presentational component
+const StatCardContent = memo(function StatCardContent({ stat }: { stat: StatCard }) {
   return (
     <>
       <div className="flex items-start justify-between mb-4">
         <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
-          <stat.icon className="w-6 h-6 text-white" />
+          <stat.icon className="w-6 h-6 text-white" aria-hidden="true" />
         </div>
         {stat.change && (
           <span className={`text-xs px-2 py-1 rounded-full ${
@@ -435,4 +556,4 @@ function StatCardContent({ stat }: { stat: StatCard }) {
       <p className="text-sm text-[var(--text-secondary)]">{stat.title}</p>
     </>
   );
-}
+});

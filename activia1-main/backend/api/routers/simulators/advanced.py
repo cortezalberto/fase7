@@ -1,7 +1,8 @@
 """
-Sprint 6 Advanced Simulator Endpoints - SM-IA, CX-IA, DSO-IA.
+Advanced Simulator Endpoints - SM-IA, CX-IA, DSO-IA.
 
 Cortez46: Extracted from monolithic simulators.py (1,589 lines)
+Cortez66: Renamed from sprint6.py to advanced.py
 FIX Cortez52: Migrated HTTPExceptions to custom exceptions
 
 Contains:
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import logging
 
-from ...deps import get_db, get_llm_provider
+from ...deps import get_db, get_llm_provider, get_current_user
 from ...schemas.common import APIResponse
 from ...schemas.simulators import (
     DailyStandupRequest,
@@ -57,6 +58,7 @@ async def daily_standup(
     request: DailyStandupRequest,
     db: Session = Depends(get_db),
     llm_provider: LLMProvider = Depends(get_llm_provider),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[DailyStandupResponse]:
     """
     Procesa la participación del estudiante en un daily standup simulado.
@@ -160,6 +162,7 @@ async def get_client_requirements(
     request: ClientRequirementRequest,
     db: Session = Depends(get_db),
     llm_provider: LLMProvider = Depends(get_llm_provider),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[ClientResponse]:
     """
     Obtiene los requisitos iniciales del cliente simulado (CX-IA).
@@ -249,6 +252,7 @@ async def ask_client_clarification(
     request: ClientClarificationRequest,
     db: Session = Depends(get_db),
     llm_provider: LLMProvider = Depends(get_llm_provider),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[ClientResponse]:
     """
     Envía una pregunta de clarificación al cliente simulado (CX-IA).
@@ -342,6 +346,7 @@ async def security_audit(
     request: SecurityAuditRequest,
     db: Session = Depends(get_db),
     llm_provider: LLMProvider = Depends(get_llm_provider),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[SecurityAuditResponse]:
     """
     Realiza una auditoría de seguridad del código proporcionado (DSO-IA).

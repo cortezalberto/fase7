@@ -29,7 +29,8 @@ class InterviewSessionDB(Base, BaseModel):
     # FIX 3.2 Cortez3: Added ondelete="CASCADE" to prevent orphan records
     session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id = Column(String(100), nullable=False, index=True)
-    activity_id = Column(String(100), nullable=True)
+    # FIX Cortez68 (MEDIUM): Add index for activity_id lookups
+    activity_id = Column(String(100), nullable=True, index=True)
 
     # Interview type
     interview_type = Column(String(50), nullable=False)  # "CONCEPTUAL", "ALGORITHMIC", "DESIGN", "BEHAVIORAL"
@@ -90,8 +91,9 @@ class InterviewSessionDB(Base, BaseModel):
             name='ck_interview_type_valid'
         ),
         # FIX 2.2 Cortez6: Check constraint for valid difficulty_level values
+        # FIX Cortez68 (MEDIUM): Case-insensitive - accept both lowercase (default) and uppercase
         CheckConstraint(
-            "difficulty_level IN ('EASY', 'MEDIUM', 'HARD')",
+            "UPPER(difficulty_level) IN ('EASY', 'MEDIUM', 'HARD')",
             name='ck_interview_difficulty_valid'
         ),
         # FIX 2.15 Cortez6: Range constraint for evaluation_score
@@ -114,7 +116,8 @@ class IncidentSimulationDB(Base, BaseModel):
     # FIX 3.2 Cortez3: Added ondelete="CASCADE" to prevent orphan records
     session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id = Column(String(100), nullable=False, index=True)
-    activity_id = Column(String(100), nullable=True)
+    # FIX Cortez68 (MEDIUM): Add index for activity_id lookups
+    activity_id = Column(String(100), nullable=True, index=True)
 
     # Incident type
     incident_type = Column(String(50), nullable=False)  # "API_ERROR", "PERFORMANCE", "SECURITY", "DATABASE", "DEPLOYMENT"
@@ -178,8 +181,9 @@ class IncidentSimulationDB(Base, BaseModel):
             name='ck_incident_type_valid'
         ),
         # FIX 2.4 Cortez6: Check constraint for valid severity values
+        # FIX Cortez68 (MEDIUM): Case-insensitive - accept both lowercase (default) and uppercase
         CheckConstraint(
-            "severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')",
+            "UPPER(severity) IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')",
             name='ck_incident_severity_valid'
         ),
     )
@@ -208,6 +212,8 @@ class SimulatorEventDB(Base, BaseModel):
     # FIX 3.2 Cortez3: Added ondelete="CASCADE" to prevent orphan records
     session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id = Column(String(100), nullable=False, index=True)
+    # FIX Cortez69 HIGH-DB-001: Add activity_id with index for filtering events by activity
+    activity_id = Column(String(100), nullable=True, index=True)
     simulator_type = Column(String(50), nullable=False, index=True)  # PO, SM, TI, IR, Client, DSO
 
     # Event details
@@ -230,6 +236,8 @@ class SimulatorEventDB(Base, BaseModel):
         Index('idx_event_type_student', 'event_type', 'student_id'),
         # Query: Get events by simulator
         Index('idx_event_simulator_session', 'simulator_type', 'session_id'),
+        # FIX Cortez69 HIGH-DB-001: Query events by activity
+        Index('idx_event_activity', 'activity_id', 'timestamp'),
         # FIX 2.13 Cortez6: Check constraint for valid simulator_type values
         # FIX Cortez21 DEFECTO 9.2: Added V2 simulators (senior_dev, qa_engineer, security_auditor, tech_lead, demanding_client)
         CheckConstraint(

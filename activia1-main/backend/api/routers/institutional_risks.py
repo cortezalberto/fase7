@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from ..deps import get_db
+from ..deps import get_db, get_current_user
 from ...database.repositories import (
     RiskAlertRepository,
     RemediationPlanRepository,
@@ -162,6 +162,7 @@ class UpdatePlanStatusRequest(BaseModel):
 async def scan_for_alerts(
     request: ScanAlertsRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[List[dict]]:
     """
     Scan for risk alerts across institutional scope
@@ -249,6 +250,7 @@ async def get_alerts(
     # FIX Cortez33: Renamed 'limit' to 'page_size' for consistency with other routers
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE, description="Elementos por página"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[List[dict]]:
     """
     Get risk alerts with filters
@@ -314,6 +316,7 @@ async def get_dashboard(
     teacher_id: Optional[str] = Query(None, description="Filter by teacher"),
     course_id: Optional[str] = Query(None, description="Filter by course"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Get dashboard metrics
@@ -352,6 +355,7 @@ async def assign_alert(
     alert_id: str,
     request: AssignAlertRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Assign alert to teacher
@@ -392,6 +396,7 @@ async def acknowledge_alert(
     alert_id: str,
     request: AcknowledgeAlertRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Acknowledge alert
@@ -432,6 +437,7 @@ async def resolve_alert(
     alert_id: str,
     request: ResolveAlertRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Resolve alert
@@ -473,6 +479,7 @@ async def resolve_alert(
 async def create_remediation_plan(
     request: RemediationPlanRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Create remediation plan
@@ -523,6 +530,7 @@ async def create_remediation_plan(
 async def get_remediation_plan(
     plan_id: str,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Get remediation plan by ID
@@ -576,6 +584,7 @@ async def update_plan_status(
     plan_id: str,
     request: UpdatePlanStatusRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
     """
     Update plan status

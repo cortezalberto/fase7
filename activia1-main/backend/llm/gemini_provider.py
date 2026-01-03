@@ -102,6 +102,12 @@ class GeminiProvider(LLMProvider):
         self._client: Optional[httpx.AsyncClient] = None
         self._client_lock = asyncio.Lock()
 
+        # FIX Cortez69 CRIT-LLM-001: Concurrency control to prevent connection exhaustion
+        self._max_concurrent = self.config.get("max_concurrent", 10)
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        # FIX Cortez70 CRIT-LLM-001: Lock for thread-safe semaphore initialization
+        self._semaphore_lock = asyncio.Lock()
+
         logger.info(
             f"GeminiProvider initialized",
             extra={
@@ -128,6 +134,17 @@ class GeminiProvider(LLMProvider):
                         )
                     )
         return self._client
+
+    async def _get_semaphore(self) -> asyncio.Semaphore:
+        """
+        FIX Cortez69 CRIT-LLM-001: Lazy initialization of semaphore.
+        FIX Cortez70 CRIT-LLM-001: Use double-checked locking for thread safety.
+        """
+        if self._semaphore is None:
+            async with self._semaphore_lock:
+                if self._semaphore is None:
+                    self._semaphore = asyncio.Semaphore(self._max_concurrent)
+        return self._semaphore
 
     async def close(self) -> None:
         """Close the persistent HTTP client."""
@@ -240,134 +257,151 @@ class GeminiProvider(LLMProvider):
         # Make request with retries
         # BE-LLM-003: Use persistent client for connection pooling
         client = await self._get_client()
-        url = f"{self.BASE_URL}/models/{model}:generateContent?key={self.api_key}"
+        # FIX Cortez68 (CRIT-007): Move API key from URL to header to prevent logging by proxies
+        url = f"{self.BASE_URL}/models/{model}:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
+        }
 
-        for attempt in range(self.max_retries):
-            try:
-                logger.debug(
-                    f"Sending request to Gemini (attempt {attempt + 1}/{self.max_retries})",
-                    extra={
-                        "model": model,
-                        "messages_count": len(messages),
-                        "temperature": temperature
+        # FIX Cortez69 CRIT-LLM-001: Use semaphore to limit concurrent requests
+        # FIX Cortez70 CRIT-LLM-001: Use await for async _get_semaphore
+        semaphore = await self._get_semaphore()
+        async with semaphore:
+            for attempt in range(self.max_retries):
+                try:
+                    logger.debug(
+                        "Sending request to Gemini (attempt %d/%d)",
+                        attempt + 1,
+                        self.max_retries,
+                        extra={
+                            "model": model,
+                            "messages_count": len(messages),
+                            "temperature": temperature
+                        }
+                    )
+
+                    response = await client.post(
+                        url,
+                        json=payload,
+                        headers=headers
+                    )
+
+                    response.raise_for_status()
+                    result = response.json()
+
+                    # Extract content from response
+                    if "candidates" not in result or not result["candidates"]:
+                        raise ValueError("No candidates in Gemini response")
+
+                    candidate = result["candidates"][0]
+                    content = candidate["content"]["parts"][0]["text"]
+
+                    # Extract usage metadata
+                    usage_metadata = result.get("usageMetadata", {})
+                    usage = {
+                        "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+                        "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
+                        "total_tokens": usage_metadata.get("totalTokenCount", 0)
                     }
-                )
 
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-
-                response.raise_for_status()
-                result = response.json()
-
-                # Extract content from response
-                if "candidates" not in result or not result["candidates"]:
-                    raise ValueError("No candidates in Gemini response")
-
-                candidate = result["candidates"][0]
-                content = candidate["content"]["parts"][0]["text"]
-
-                # Extract usage metadata
-                usage_metadata = result.get("usageMetadata", {})
-                usage = {
-                    "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
-                    "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
-                    "total_tokens": usage_metadata.get("totalTokenCount", 0)
-                }
-
-                # Update metrics
-                metrics = _get_metrics()
-                if metrics:
-                    metrics.llm_requests_total.labels(
-                        provider="gemini",
-                        model=model,
-                        status="success"
-                    ).inc()
-                    metrics.llm_tokens_total.labels(
-                        provider="gemini",
-                        model=model,
-                        token_type="prompt"
-                    ).inc(usage["prompt_tokens"])
-                    metrics.llm_tokens_total.labels(
-                        provider="gemini",
-                        model=model,
-                        token_type="completion"
-                    ).inc(usage["completion_tokens"])
-
-                logger.info(
-                    "Gemini request successful",
-                    extra={
-                        "model": model,
-                        "usage": usage,
-                        "finish_reason": candidate.get("finishReason", "STOP")
-                    }
-                )
-
-                return LLMResponse(
-                    content=content,
-                    model=model,
-                    usage=usage,
-                    metadata={
-                        "finish_reason": candidate.get("finishReason", "STOP"),
-                        "safety_ratings": candidate.get("safetyRatings", [])
-                    }
-                )
-                    
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    f"Gemini HTTP error (attempt {attempt + 1}/{self.max_retries}): {e.response.status_code}",
-                    extra={"response": e.response.text}
-                )
-                
-                # Don't retry on client errors (4xx)
-                if 400 <= e.response.status_code < 500:
+                    # Update metrics
                     metrics = _get_metrics()
                     if metrics:
                         metrics.llm_requests_total.labels(
                             provider="gemini",
                             model=model,
-                            status="error"
+                            status="success"
                         ).inc()
-                    raise
-                
-                # Retry on server errors (5xx)
-                if attempt < self.max_retries - 1:
-                    # BE-LLM-005: Use jitter to prevent thundering herd
-                    delay = self._calculate_retry_delay(attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    metrics = _get_metrics()
-                    if metrics:
-                        metrics.llm_requests_total.labels(
+                        metrics.llm_tokens_total.labels(
                             provider="gemini",
                             model=model,
-                            status="error"
-                        ).inc()
-                    raise
-                    
-            except Exception as e:
-                logger.error(
-                    f"Gemini request failed (attempt {attempt + 1}/{self.max_retries}): {e}",
-                    exc_info=True
-                )
+                            token_type="prompt"
+                        ).inc(usage["prompt_tokens"])
+                        metrics.llm_tokens_total.labels(
+                            provider="gemini",
+                            model=model,
+                            token_type="completion"
+                        ).inc(usage["completion_tokens"])
 
-                if attempt < self.max_retries - 1:
-                    # BE-LLM-005: Use jitter to prevent thundering herd
-                    delay = self._calculate_retry_delay(attempt)
-                    await asyncio.sleep(delay)
-                    continue
-                else:
-                    metrics = _get_metrics()
-                    if metrics:
-                        metrics.llm_requests_total.labels(
-                            provider="gemini",
-                            model=model,
-                            status="error"
-                        ).inc()
-                    raise
+                    logger.info(
+                        "Gemini request successful",
+                        extra={
+                            "model": model,
+                            "usage": usage,
+                            "finish_reason": candidate.get("finishReason", "STOP")
+                        }
+                    )
+
+                    return LLMResponse(
+                        content=content,
+                        model=model,
+                        usage=usage,
+                        metadata={
+                            "finish_reason": candidate.get("finishReason", "STOP"),
+                            "safety_ratings": candidate.get("safetyRatings", [])
+                        }
+                    )
+
+                except httpx.HTTPStatusError as e:
+                    logger.warning(
+                        "Gemini HTTP error (attempt %d/%d): %d",
+                        attempt + 1,
+                        self.max_retries,
+                        e.response.status_code,
+                        extra={"response": e.response.text}
+                    )
+
+                    # Don't retry on client errors (4xx)
+                    if 400 <= e.response.status_code < 500:
+                        metrics = _get_metrics()
+                        if metrics:
+                            metrics.llm_requests_total.labels(
+                                provider="gemini",
+                                model=model,
+                                status="error"
+                            ).inc()
+                        raise
+
+                    # Retry on server errors (5xx)
+                    if attempt < self.max_retries - 1:
+                        # BE-LLM-005: Use jitter to prevent thundering herd
+                        delay = self._calculate_retry_delay(attempt)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        metrics = _get_metrics()
+                        if metrics:
+                            metrics.llm_requests_total.labels(
+                                provider="gemini",
+                                model=model,
+                                status="error"
+                            ).inc()
+                        raise
+
+                except Exception as e:
+                    logger.error(
+                        "Gemini request failed (attempt %d/%d): %s",
+                        attempt + 1,
+                        self.max_retries,
+                        e,
+                        exc_info=True
+                    )
+
+                    if attempt < self.max_retries - 1:
+                        # BE-LLM-005: Use jitter to prevent thundering herd
+                        delay = self._calculate_retry_delay(attempt)
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        metrics = _get_metrics()
+                        if metrics:
+                            metrics.llm_requests_total.labels(
+                                provider="gemini",
+                                model=model,
+                                status="error"
+                            ).inc()
+                        raise
 
     async def generate_stream(
         self,
@@ -419,35 +453,43 @@ class GeminiProvider(LLMProvider):
         
         # BE-LLM-003: Use persistent client for connection pooling
         client = await self._get_client()
-        url = f"{self.BASE_URL}/models/{model}:streamGenerateContent?key={self.api_key}"
+        # FIX Cortez68 (CRIT-007): Move API key from URL to header to prevent logging by proxies
+        url = f"{self.BASE_URL}/models/{model}:streamGenerateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
+        }
 
-        async with client.stream(
-            "POST",
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        ) as response:
-            response.raise_for_status()
+        # FIX Cortez70 CRIT-LLM-003: Apply semaphore to streaming to prevent connection exhaustion
+        semaphore = await self._get_semaphore()
+        async with semaphore:
+            async with client.stream(
+                "POST",
+                url,
+                json=payload,
+                headers=headers
+            ) as response:
+                response.raise_for_status()
 
-            async for line in response.aiter_lines():
-                if not line.strip():
-                    continue
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
 
-                try:
-                    # Parse JSON from stream
-                    data = json.loads(line)
+                    try:
+                        # Parse JSON from stream
+                        data = json.loads(line)
 
-                    if "candidates" in data and data["candidates"]:
-                        candidate = data["candidates"][0]
-                        if "content" in candidate:
-                            parts = candidate["content"].get("parts", [])
-                            for part in parts:
-                                if "text" in part:
-                                    yield part["text"]
-                except json.JSONDecodeError:
-                    # FIX Cortez53: Use lazy logging
-                    logger.debug("Skipping non-JSON line: %s", line)
-                    continue
+                        if "candidates" in data and data["candidates"]:
+                            candidate = data["candidates"][0]
+                            if "content" in candidate:
+                                parts = candidate["content"].get("parts", [])
+                                for part in parts:
+                                    if "text" in part:
+                                        yield part["text"]
+                    except json.JSONDecodeError:
+                        # FIX Cortez53: Use lazy logging
+                        logger.debug("Skipping non-JSON line: %s", line)
+                        continue
 
     def count_tokens(self, text: str) -> int:
         """

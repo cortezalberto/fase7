@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import re
 import logging  # FIX Cortez33: Add logging
+import uuid  # FIX Cortez68 (HIGH-010): Use UUID for unique trace IDs
 
 from ..models.trace import CognitiveTrace, TraceLevel, TraceSequence, InteractionType
 
@@ -64,8 +65,9 @@ class TrazabilidadN4Agent:
         Returns:
             CognitiveTrace creada
         """
+        # FIX Cortez68 (HIGH-010): Use UUID for unique trace IDs instead of timestamp
         trace = CognitiveTrace(
-            id=f"trace_{datetime.now().timestamp()}",
+            id=f"trace_{uuid.uuid4()}",
             timestamp=datetime.now(),
             student_id=student_id,
             activity_id=activity_id,
@@ -89,8 +91,9 @@ class TrazabilidadN4Agent:
         session_id: Optional[str] = None
     ) -> TraceSequence:
         """Crea una nueva secuencia de trazas"""
+        # FIX Cortez68 (HIGH-010): Use UUID for unique sequence IDs instead of timestamp
         if not sequence_id:
-            sequence_id = f"seq_{student_id}_{activity_id}_{datetime.now().timestamp()}"
+            sequence_id = f"seq_{uuid.uuid4()}"
 
         sequence = TraceSequence(
             id=sequence_id,

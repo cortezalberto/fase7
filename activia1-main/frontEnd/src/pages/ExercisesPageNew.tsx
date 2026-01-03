@@ -32,10 +32,10 @@ function ExercisesPageNew() {
           setExercises(exercises || []);
         }
       } catch (err) {
+        // FIX Cortez71: Removed console.error
         if (isMounted) {
           const errorMessage = err instanceof Error ? err.message : 'Error loading exercises';
           setError(errorMessage);
-          console.error('Error loading exercises:', err);
         }
       } finally {
         if (isMounted) {
@@ -71,10 +71,9 @@ function ExercisesPageNew() {
       });
       setResult(result);
     } catch (err) {
-      // FIX Cortez31: Show error to user instead of silent failure
+      // FIX Cortez31/71: Show error to user, removed console.error
       const errorMessage = err instanceof Error ? err.message : 'Error al enviar el ejercicio';
       setError(errorMessage);
-      console.error('Error submitting exercise:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -202,9 +201,10 @@ function ExercisesPageNew() {
                   {selectedExercise.hints && selectedExercise.hints.length > 0 && (
                     <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
                       <h3 className="text-blue-400 font-semibold mb-2 text-sm">💡 Pistas:</h3>
+                      {/* FIX Cortez71 HIGH-001: Use stable key based on content */}
                       <ul className="text-sm text-gray-300 space-y-1">
                         {selectedExercise.hints.map((hint, index) => (
-                          <li key={index}>• {hint}</li>
+                          <li key={`hint-${index}-${hint.slice(0, 15)}`}>• {hint}</li>
                         ))}
                       </ul>
                     </div>
@@ -380,6 +380,7 @@ function ExercisesPageNew() {
                     )}
 
                     {/* Test Details */}
+                    {/* FIX Cortez71 HIGH-001: Use test.name as key instead of index */}
                     {result.test_results && result.test_results.length > 0 && (
                       <div className="mt-6">
                         <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
@@ -387,9 +388,9 @@ function ExercisesPageNew() {
                           Detalles de Tests
                         </h4>
                         <div className="space-y-2">
-                          {result.test_results.map((test, index) => (
+                          {result.test_results.map((test) => (
                             <div
-                              key={index}
+                              key={test.name}
                               className={`p-3 rounded-lg border ${
                                 test.passed
                                   ? 'bg-green-500/10 border-green-500/30'

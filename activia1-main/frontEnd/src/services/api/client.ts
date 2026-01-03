@@ -1,10 +1,13 @@
 /**
  * Cliente HTTP configurado con Axios
  * Incluye interceptores para manejo de errores y logging
+ *
+ * FIX Cortez71 MED-007: Timeout configurable via environment variable
  */
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { APIResponse, APIError } from '@/types/api.types';
+import { HTTP_CONSTANTS } from '@/shared/config/constants.config';
 
 // Development-only logging helpers
 const isDev = import.meta.env.DEV;
@@ -16,10 +19,13 @@ const devError = (message: string, ...args: unknown[]) => { if (isDev) console.e
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||
   (isDev ? '/api/v1' : '/api/v1');
 
+// FIX Cortez71 MED-007: Timeout configurable via env variable or constants
+const API_TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT) || HTTP_CONSTANTS.LLM_TIMEOUT;
+
 // Crear instancia de axios
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 180000, // 180 segundos (3 minutos) - Aumentado para manejar tiempos de respuesta largos de Ollama en CPU
+  timeout: API_TIMEOUT, // Configurable: default 180s for LLM requests
   headers: {
     'Content-Type': 'application/json',
   },

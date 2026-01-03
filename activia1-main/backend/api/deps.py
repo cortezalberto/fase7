@@ -300,6 +300,8 @@ async def get_current_user(
     """
     import os
     from .security import verify_token, get_user_id_from_token
+    # FIX Cortez68 (HIGH-008): Import specific token error classes
+    from ..core.security import TokenExpiredError, TokenInvalidError, decode_access_token
 
     # FIX Cortez33: ENVIRONMENT must be explicitly set - no unsafe defaults
     # This prevents accidental production deployment without proper auth
@@ -333,13 +335,24 @@ async def get_current_user(
 
         token = authorization.replace("Bearer ", "")
 
-        # Verificar token JWT
-        user_id = get_user_id_from_token(token)
-        if not user_id:
-            logger.warning("Invalid or expired JWT token")
+        # FIX Cortez68 (HIGH-008): Use specific token validation with distinct error messages
+        try:
+            payload = decode_access_token(token, raise_on_error=True)
+            user_id = payload.get("sub") if payload else None
+            if not user_id:
+                raise TokenInvalidError("Token missing user identifier")
+        except TokenExpiredError:
+            logger.warning("JWT token has expired")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
+                detail="Token has expired. Please login again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except TokenInvalidError as e:
+            logger.warning("Invalid JWT token: %s", str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token. Please provide a valid token.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -413,12 +426,13 @@ async def get_current_user(
                     }
 
         # Permitir acceso sin autenticación solo en desarrollo
+        # FIX Cortez68 (CRIT-004): Use invalid UUID format to prevent conflicts with real users
         logger.debug("Anonymous access allowed in development mode")
         return {
-            "user_id": "anonymous",
-            "email": "anonymous@example.com",
+            "user_id": "00000000-0000-0000-0000-000000000000",  # Nil UUID for anonymous
+            "email": "anonymous@system.local",
             "username": "anonymous",
-            "full_name": "Anonymous User",
+            "full_name": "Anonymous User (Dev Mode)",
             "student_id": None,
             "roles": ["student"],
             "is_active": True,

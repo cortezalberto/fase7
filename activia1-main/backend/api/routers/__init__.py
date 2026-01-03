@@ -1,7 +1,10 @@
 """
 API Routers
 Todos los endpoints REST del sistema AI-Native
+
+Cortez66: health modularized to health/ package
 """
+# Cortez66: Import from modularized health package
 from .health import router as health_router
 from .sessions import router as sessions_router
 from .interactions import router as interactions_router

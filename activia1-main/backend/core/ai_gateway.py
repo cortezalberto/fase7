@@ -19,7 +19,7 @@ Background Tasks for Risk Analysis:
 - This would allow immediate response to user while analysis runs in background
 - See: https://fastapi.tiangolo.com/tutorial/background-tasks/
 """
-from typing import Optional, Dict, Any, List, Protocol, runtime_checkable
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
 import logging
@@ -33,6 +33,14 @@ from ..models.evaluation import EvaluationReport
 from ..llm import LLMProviderFactory, LLMProvider, LLMMessage, LLMRole
 from .cache import LLMResponseCache
 from ..agents.governance import GobernanzaAgent
+# FIX Cortez68 (HIGH-005): Import protocols from gateway module instead of duplicating
+from .gateway.protocols import (
+    SessionRepositoryProtocol,
+    TraceRepositoryProtocol,
+    RiskRepositoryProtocol,
+    EvaluationRepositoryProtocol,
+    SequenceRepositoryProtocol,
+)
 
 # Prometheus metrics instrumentation (HIGH-01)
 # Lazy import to avoid circular dependency with api.monitoring
@@ -65,45 +73,8 @@ def _get_metrics():
 logger = logging.getLogger(__name__)
 
 
-# Repository Protocol interfaces for type checking
-# These define the expected interface without creating circular imports
-
-@runtime_checkable
-class SessionRepositoryProtocol(Protocol):
-    """Protocol for session repository operations"""
-    def create(self, student_id: str, activity_id: str, mode: str) -> Any: ...
-    def get(self, session_id: str) -> Any: ...
-    def update(self, session_id: str, **kwargs: Any) -> Any: ...
-
-
-@runtime_checkable
-class TraceRepositoryProtocol(Protocol):
-    """Protocol for trace repository operations"""
-    def create(self, trace: CognitiveTrace) -> Any: ...
-    def get_by_session(self, session_id: str) -> List[CognitiveTrace]: ...
-
-
-@runtime_checkable
-class RiskRepositoryProtocol(Protocol):
-    """Protocol for risk repository operations"""
-    def create(self, risk: Risk) -> Any: ...
-    def get_by_session(self, session_id: str) -> List[Risk]: ...
-
-
-@runtime_checkable
-class EvaluationRepositoryProtocol(Protocol):
-    """Protocol for evaluation repository operations"""
-    def create(self, evaluation: EvaluationReport) -> Any: ...
-    def get_by_session(self, session_id: str) -> Optional[EvaluationReport]: ...
-
-
-@runtime_checkable
-class SequenceRepositoryProtocol(Protocol):
-    """Protocol for trace sequence repository operations"""
-    def create(self, sequence: TraceSequence) -> Any: ...
-    def get(self, sequence_id: str) -> Optional[TraceSequence]: ...
-    def get_by_session(self, session_id: str) -> Optional[TraceSequence]: ...
-    def update(self, sequence: TraceSequence) -> Any: ...
+# FIX Cortez68 (HIGH-005): Protocol definitions removed - now imported from gateway.protocols
+# See: backend/core/gateway/protocols.py for canonical definitions
 
 
 class AIGateway:
@@ -294,7 +265,8 @@ class AIGateway:
                 "session_id": session_id,
                 "prompt_preview": prompt[:160],
                 "context_keys": sorted((context or {}).keys()) if context else [],
-                "timestamp": datetime.utcnow().isoformat()
+                # FIX Cortez68 (MEDIUM): Use timezone-aware datetime
+                "timestamp": datetime.now(tz=__import__('datetime').timezone.utc).isoformat()
             }
         )
 
@@ -324,6 +296,9 @@ class AIGateway:
             )
 
         # ✅ STATELESS: Obtener sesión desde BD (no desde self.active_sessions)
+        # TODO Cortez68 (CRIT-006): Consider adding optimistic locking with version field
+        # to prevent race conditions on concurrent session modifications. This requires
+        # adding a `version` column to SessionDB and incrementing it on each update.
         if self.session_repo is not None:
             db_session = self.session_repo.get_by_id(session_id)
             if not db_session:
@@ -604,31 +579,54 @@ class AIGateway:
                 )
 
         async def _async_task():
+            # FIX Cortez68 (CRIT-005): Add retry mechanism for failed risk analysis
+            max_retries = 3
+            retry_delay = 1.0  # seconds
             started_at = time.perf_counter()
-            try:
-                await asyncio.to_thread(
-                    _analyze_with_fresh_db_session
-                )
-            except Exception:
-                logger.error(
-                    "Risk analysis task failed",
-                    exc_info=True,
-                    extra={
-                        "flow_id": flow_id,
-                        "session_id": session_id,
-                        "input_trace_id": input_trace.id,
-                        "response_trace_id": response_trace.id
-                    }
-                )
-            else:
-                logger.info(
-                    "Risk analysis completed asynchronously",
-                    extra={
-                        "flow_id": flow_id,
-                        "session_id": session_id,
-                        "duration_ms": round((time.perf_counter() - started_at) * 1000, 2)
-                    }
-                )
+            last_exception = None
+
+            for attempt in range(max_retries):
+                try:
+                    await asyncio.to_thread(
+                        _analyze_with_fresh_db_session
+                    )
+                    logger.info(
+                        "Risk analysis completed asynchronously",
+                        extra={
+                            "flow_id": flow_id,
+                            "session_id": session_id,
+                            "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                            "attempt": attempt + 1
+                        }
+                    )
+                    return  # Success, exit
+                except Exception as exc:
+                    last_exception = exc
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            "Risk analysis task failed, retrying",
+                            extra={
+                                "flow_id": flow_id,
+                                "session_id": session_id,
+                                "attempt": attempt + 1,
+                                "max_retries": max_retries,
+                                "retry_delay": retry_delay
+                            }
+                        )
+                        await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    else:
+                        logger.error(
+                            "Risk analysis task failed after all retries",
+                            exc_info=True,
+                            extra={
+                                "flow_id": flow_id,
+                                "session_id": session_id,
+                                "input_trace_id": input_trace.id,
+                                "response_trace_id": response_trace.id,
+                                "total_attempts": max_retries,
+                                "error": str(last_exception)
+                            }
+                        )
 
         # FIX Cortez34: Add done callback to track task completion and log errors
         # FIX Cortez35: Also remove task from registry when done
@@ -764,6 +762,17 @@ Esto no es una limitación arbitraria: el objetivo es que desarrolles tu capacid
                 message = await self._generate_conceptual_explanation(prompt, strategy, session_id, flow_id=flow_id)
             elif response_type == "guided_hints":
                 message = await self._generate_guided_hints(prompt, strategy, session_id, flow_id=flow_id)
+            # ============================================================
+            # NUEVOS TIPOS DE RESPUESTA (FIX Cortez64)
+            # ============================================================
+            elif response_type == "empathetic_support":
+                message = await self._generate_empathetic_support(prompt, strategy, session_id, flow_id=flow_id)
+            elif response_type == "metacognitive_guidance":
+                message = await self._generate_metacognitive_guidance(prompt, strategy, session_id, flow_id=flow_id)
+            elif response_type == "example_based":
+                message = await self._generate_example_based(prompt, strategy, session_id, flow_id=flow_id)
+            elif response_type == "clarification_request":
+                message = await self._generate_clarification_request(prompt, strategy, session_id, flow_id=flow_id)
             else:
                 # Fallback: usar explicación conceptual para casos no clasificados
                 logger.warning(
@@ -865,11 +874,16 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
             use_pro = (model_decision == "pro")
             
             # Use Flash model for conversational tutoring (unless Pro is needed)
-            response = await self.llm.generate(
-                messages, 
-                max_tokens=300, 
-                temperature=0.7,
-                is_code_analysis=use_pro  # Pro si Flash decidió que es necesario
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=300,
+                    temperature=0.7,
+                    is_code_analysis=use_pro  # Pro si Flash decidió que es necesario
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
@@ -950,8 +964,10 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
             try:
                 analysis = await self.llm.analyze_complexity(prompt)
                 decision = "pro" if analysis["needs_pro"] else "flash"
+                # FIX Cortez68 (HIGH-009): Convert f-string logging to lazy format
                 logger.info(
-                    f"Smart decision by Flash: Using {decision}",
+                    "Smart decision by Flash: Using %s",
+                    decision,
                     extra={
                         "reason": analysis["reason"],
                         "confidence": analysis["confidence"]
@@ -1030,12 +1046,17 @@ Usa markdown para formato. Sé claro y conciso (máximo 200 palabras)."""
             # Decisión inteligente: keywords rápidos + Flash analiza si es ambiguo
             model_decision = await self._decide_model_for_prompt(prompt)
             use_pro = (model_decision == "pro")
-            
-            response = await self.llm.generate(
-                messages, 
-                max_tokens=400, 
-                temperature=0.7,
-                is_code_analysis=use_pro
+
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=400,
+                    temperature=0.7,
+                    is_code_analysis=use_pro
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
@@ -1127,12 +1148,17 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
             # Decisión inteligente de modelo
             model_decision = await self._decide_model_for_prompt(prompt)
             use_pro = (model_decision == "pro")
-            
-            response = await self.llm.generate(
-                messages, 
-                max_tokens=350, 
-                temperature=0.7,
-                is_code_analysis=use_pro
+
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=350,
+                    temperature=0.7,
+                    is_code_analysis=use_pro
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
@@ -1159,17 +1185,419 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
             # Circuit Breaker: Fallback cuando Ollama está inaccesible
             return self._get_fallback_guided_hints(prompt, flow_id=flow_id)
 
-    def _generate_clarification_request(self, prompt: str, strategy: Dict[str, Any]) -> str:
-        """Solicita clarificación"""
-        return """
-Para poder ayudarte mejor, necesito que seas más específico:
+    # ============================================================
+    # NUEVOS MÉTODOS DE GENERACIÓN DE RESPUESTA (FIX Cortez64)
+    # ============================================================
+
+    async def _generate_empathetic_support(
+        self,
+        prompt: str,
+        strategy: Dict[str, Any],
+        session_id: str = None,
+        flow_id: Optional[str] = None
+    ) -> str:
+        """
+        FIX Cortez64: Genera respuesta empática para estudiantes frustrados.
+
+        Reconoce la frustración, normaliza la dificultad, y ofrece un enfoque
+        fresco con pistas más directas para desbloquear.
+        """
+        conversation_history = []
+        if session_id and self.trace_repo:
+            conversation_history = self._load_conversation_history(session_id)
+
+        messages = [
+            LLMMessage(
+                role=LLMRole.SYSTEM,
+                content="""Eres un tutor empático y comprensivo. El estudiante está frustrado o atascado.
+
+🎯 TU OBJETIVO: Reconocer su frustración, normalizarla, y ayudarlo a desbloquear.
+
+✅ LO QUE DEBES HACER:
+1. **Reconocer la frustración** - "Entiendo que esto es frustrante..." / "Es normal sentirse trabado..."
+2. **Normalizar la dificultad** - "Este es un problema que toma tiempo..." / "Todos nos trabamos con esto al principio..."
+3. **Ofrecer perspectiva fresca** - Sugerir mirar el problema desde otro ángulo
+4. **Dar pistas más directas** - Ser más específico de lo usual para ayudar a desbloquear
+5. **Sugerir pasos pequeños** - Dividir en partes manejables
+6. **Mantener tono alentador** - "Ya avanzaste en X, ahora veamos Y..."
+
+⚠️ PROHIBIDO:
+- Dar código completo (pero sí puedes ser más específico con conceptos)
+- Minimizar su frustración ("es fácil", "no es para tanto")
+- Dar la solución directa
+
+💡 Puedes ser más generoso con las pistas que en modo normal,
+pero sin dar la solución completa.
+
+Sé cálido, paciente y constructivo. Máximo 200 palabras."""
+            )
+        ]
+
+        messages.extend(conversation_history)
+        messages.append(
+            LLMMessage(
+                role=LLMRole.USER,
+                content=f"Estudiante frustrado dice: {prompt}"
+            )
+        )
+
+        try:
+            logger.info(
+                "Sending messages to LLM (empathetic_support)",
+                extra={
+                    "session_id": session_id,
+                    "messages_count": len(messages),
+                    "flow_id": flow_id
+                }
+            )
+
+            llm_started_at = time.perf_counter()
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=400,
+                    temperature=0.8  # Un poco más de variedad para empatía
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+            llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
+
+            logger.info(
+                "LLM response received (empathetic_support)",
+                extra={
+                    "session_id": session_id,
+                    "flow_id": flow_id,
+                    "duration_ms": llm_duration_ms
+                }
+            )
+
+            return response.content.strip()
+        except Exception as e:
+            logger.error("LLM generation failed (empathetic_support): %s", e, exc_info=True)
+            return self._get_fallback_empathetic_support(prompt, flow_id=flow_id)
+
+    async def _generate_metacognitive_guidance(
+        self,
+        prompt: str,
+        strategy: Dict[str, Any],
+        session_id: str = None,
+        flow_id: Optional[str] = None
+    ) -> str:
+        """
+        FIX Cortez64: Genera guía metacognitiva para estudiantes que preguntan
+        sobre cómo pensar o encarar un problema.
+        """
+        conversation_history = []
+        if session_id and self.trace_repo:
+            conversation_history = self._load_conversation_history(session_id)
+
+        messages = [
+            LLMMessage(
+                role=LLMRole.SYSTEM,
+                content="""Eres un tutor especializado en metacognición y estrategias de aprendizaje.
+El estudiante pregunta sobre CÓMO PENSAR o CÓMO ENCARAR un problema.
+
+🎯 TU OBJETIVO: Enseñar el PROCESO de pensamiento, no el contenido.
+
+✅ LO QUE DEBES HACER:
+1. **Estrategia de descomposición** - "Primero, identifiquemos qué sabemos y qué nos piden..."
+2. **Plan de acción** - "Un buen enfoque sería: 1) entender el input, 2) definir el output..."
+3. **Técnicas de resolución** - Mencionar patrones como "dividir y conquistar", "casos base"
+4. **Preguntas de autoevaluación** - "Preguntate: ¿qué pasa si el input está vacío?"
+5. **Orden de pasos** - Dar una secuencia lógica para abordar problemas similares
+
+⚠️ PROHIBIDO:
+- Dar código o pseudocódigo detallado
+- Resolver el problema específico directamente
+
+💡 Enseñale a PESCAR, no le des el pescado.
+
+Estructura tu respuesta como un plan de acción numerado.
+Máximo 250 palabras."""
+            )
+        ]
+
+        messages.extend(conversation_history)
+        messages.append(
+            LLMMessage(
+                role=LLMRole.USER,
+                content=f"Estudiante pregunta sobre estrategia: {prompt}"
+            )
+        )
+
+        try:
+            logger.info(
+                "Sending messages to LLM (metacognitive_guidance)",
+                extra={
+                    "session_id": session_id,
+                    "messages_count": len(messages),
+                    "flow_id": flow_id
+                }
+            )
+
+            llm_started_at = time.perf_counter()
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=450,
+                    temperature=0.6  # Más estructurado
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+            llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
+
+            logger.info(
+                "LLM response received (metacognitive_guidance)",
+                extra={
+                    "session_id": session_id,
+                    "flow_id": flow_id,
+                    "duration_ms": llm_duration_ms
+                }
+            )
+
+            return response.content.strip()
+        except Exception as e:
+            logger.error("LLM generation failed (metacognitive_guidance): %s", e, exc_info=True)
+            return self._get_fallback_metacognitive_guidance(prompt, flow_id=flow_id)
+
+    async def _generate_example_based(
+        self,
+        prompt: str,
+        strategy: Dict[str, Any],
+        session_id: str = None,
+        flow_id: Optional[str] = None
+    ) -> str:
+        """
+        FIX Cortez64: Genera respuesta basada en ejemplos análogos.
+
+        Proporciona un ejemplo similar pero diferente al problema actual,
+        guiando la transferencia del conocimiento.
+        """
+        conversation_history = []
+        if session_id and self.trace_repo:
+            conversation_history = self._load_conversation_history(session_id)
+
+        messages = [
+            LLMMessage(
+                role=LLMRole.SYSTEM,
+                content="""Eres un tutor que enseña mediante ejemplos análogos.
+El estudiante pidió un ejemplo para entender mejor.
+
+🎯 TU OBJETIVO: Dar un ejemplo SIMILAR pero NO IDÉNTICO al problema.
+
+✅ LO QUE DEBES HACER:
+1. **Ejemplo análogo** - Usar un caso diferente pero con la misma estructura
+   - Si pregunta sobre ordenar números, dar ejemplo de ordenar palabras alfabéticamente
+   - Si pregunta sobre listas, dar ejemplo con otra colección
+
+2. **Explicar el ejemplo** - Paso a paso, conceptualmente
+3. **Preguntas de transferencia** - "¿Ves cómo esto se aplica a tu problema?"
+4. **Conexión explícita** - Ayudar a ver el paralelo con su problema
+
+⚠️ PROHIBIDO:
+- Dar la solución directa a SU problema
+- Dar código copiable para su ejercicio específico
+
+💡 El ejemplo debe iluminar el PATRÓN, no resolver el problema.
+
+Ejemplo de estructura:
+"Imaginá que en lugar de [su problema] tenés [problema análogo]...
+En ese caso, pensarías en... [explicación]
+Ahora, ¿cómo aplicarías esta misma idea a tu problema?"
+
+Máximo 300 palabras."""
+            )
+        ]
+
+        messages.extend(conversation_history)
+        messages.append(
+            LLMMessage(
+                role=LLMRole.USER,
+                content=f"Estudiante pide ejemplo: {prompt}"
+            )
+        )
+
+        try:
+            logger.info(
+                "Sending messages to LLM (example_based)",
+                extra={
+                    "session_id": session_id,
+                    "messages_count": len(messages),
+                    "flow_id": flow_id
+                }
+            )
+
+            llm_started_at = time.perf_counter()
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=500,
+                    temperature=0.7
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+            llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
+
+            logger.info(
+                "LLM response received (example_based)",
+                extra={
+                    "session_id": session_id,
+                    "flow_id": flow_id,
+                    "duration_ms": llm_duration_ms
+                }
+            )
+
+            return response.content.strip()
+        except Exception as e:
+            logger.error("LLM generation failed (example_based): %s", e, exc_info=True)
+            return self._get_fallback_example_based(prompt, flow_id=flow_id)
+
+    async def _generate_clarification_request(
+        self,
+        prompt: str,
+        strategy: Dict[str, Any],
+        session_id: str = None,
+        flow_id: Optional[str] = None
+    ) -> str:
+        """
+        FIX Cortez64: Solicita clarificación cuando el prompt es ambiguo.
+        Actualizado a async con LLM para respuestas más naturales.
+        """
+        conversation_history = []
+        if session_id and self.trace_repo:
+            conversation_history = self._load_conversation_history(session_id)
+
+        messages = [
+            LLMMessage(
+                role=LLMRole.SYSTEM,
+                content="""Eres un tutor que necesita más información para ayudar.
+El mensaje del estudiante es ambiguo o le falta contexto.
+
+🎯 TU OBJETIVO: Pedir clarificación de manera amable y específica.
+
+✅ LO QUE DEBES HACER:
+1. Reconocer que querés ayudar
+2. Explicar qué información te falta
+3. Hacer preguntas específicas:
+   - ¿Qué parte exacta no entendés?
+   - ¿Qué intentaste hasta ahora?
+   - ¿Podés mostrar tu código actual?
+   - ¿Qué resultado esperabas vs. qué obtuviste?
+
+Sé amable y específico. Máximo 100 palabras."""
+            )
+        ]
+
+        messages.extend(conversation_history)
+        messages.append(
+            LLMMessage(
+                role=LLMRole.USER,
+                content=f"Mensaje ambiguo: {prompt}"
+            )
+        )
+
+        try:
+            logger.info(
+                "Sending messages to LLM (clarification_request)",
+                extra={
+                    "session_id": session_id,
+                    "messages_count": len(messages),
+                    "flow_id": flow_id
+                }
+            )
+
+            # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
+            LLM_TIMEOUT_SECONDS = 30.0
+            response = await asyncio.wait_for(
+                self.llm.generate(
+                    messages,
+                    max_tokens=200,
+                    temperature=0.5
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+
+            return response.content.strip()
+        except Exception as e:
+            logger.error("LLM generation failed (clarification_request): %s", e, exc_info=True)
+            return self._get_fallback_clarification_request(prompt, flow_id=flow_id)
+
+    # ============================================================
+    # FALLBACKS PARA NUEVOS TIPOS (FIX Cortez64)
+    # ============================================================
+
+    def _get_fallback_empathetic_support(self, prompt: str, flow_id: Optional[str] = None) -> str:
+        """Fallback para respuesta empática cuando LLM no está disponible."""
+        return """Entiendo que te sentís frustrado/a, y es completamente normal.
+Todos nos trabamos en algún momento cuando aprendemos a programar.
+
+Tomemos un respiro y miremos esto desde otro ángulo:
+
+1. **¿Qué parte SÍ entendés del problema?** Empezá por ahí.
+2. **¿Podés dividirlo en partes más pequeñas?** A veces ayuda resolver pedacitos.
+3. **¿Qué fue lo último que funcionó?** Volvamos a ese punto.
+
+No te rindas. Cada error es un paso hacia la solución.
+¿Por dónde te gustaría empezar de nuevo?"""
+
+    def _get_fallback_metacognitive_guidance(self, prompt: str, flow_id: Optional[str] = None) -> str:
+        """Fallback para guía metacognitiva cuando LLM no está disponible."""
+        return """Para encarar este tipo de problemas, te sugiero seguir estos pasos:
+
+**Plan de Acción:**
+
+1. **Entender el problema**
+   - ¿Qué datos de entrada tenés?
+   - ¿Qué resultado necesitás obtener?
+
+2. **Identificar lo que sabés**
+   - ¿Qué conceptos ya conocés que podrían servir?
+   - ¿Resolviste algo similar antes?
+
+3. **Descomponer en pasos**
+   - ¿Cuál sería el primer paso más pequeño?
+   - ¿Qué necesitás resolver primero?
+
+4. **Probar con ejemplos simples**
+   - ¿Qué pasaría con un caso muy sencillo?
+   - ¿Y con un caso borde (vacío, un solo elemento)?
+
+¿Podés empezar describiendo qué entendés del problema en tus palabras?"""
+
+    def _get_fallback_example_based(self, prompt: str, flow_id: Optional[str] = None) -> str:
+        """Fallback para respuesta basada en ejemplos cuando LLM no está disponible."""
+        return """Te doy un ejemplo análogo para que veas el patrón:
+
+**Problema similar:** Imaginá que tenés que ordenar cartas de un mazo.
+
+- Primero, necesitás un criterio de orden (¿por número? ¿por palo?)
+- Luego, comparás de a pares para decidir cuál va primero
+- Repetís hasta que todo esté ordenado
+
+**La pregunta clave:** ¿Cómo decidís si un elemento va antes que otro?
+
+Ahora pensá en tu problema:
+- ¿Cuál es tu "criterio de orden"?
+- ¿Cómo compararías dos elementos?
+
+¿Ves la conexión entre este ejemplo y tu problema?"""
+
+    def _get_fallback_clarification_request(self, prompt: str, flow_id: Optional[str] = None) -> str:
+        """Fallback para solicitud de clarificación cuando LLM no está disponible."""
+        return """Para poder ayudarte mejor, necesito que seas más específico:
 
 - ¿Qué parte exacta del problema te genera dificultad?
 - ¿Qué intentaste hasta ahora?
 - ¿Qué resultado esperabas vs. qué obtuviste?
 
-Por favor, reformulá tu pregunta con más detalles.
-"""
+Si tenés código, compartilo para poder ver dónde está el problema.
+Por favor, reformulá tu pregunta con más detalles."""
 
     # FIX Cortez22 DEFECTO 1.1: Make async for future LLM integration
     async def _process_simulator_mode(

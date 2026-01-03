@@ -96,7 +96,8 @@ export const ExercisesList = ({ onSelectExercise }: ExercisesListProps) => {
   };
 
   // FIX Cortez28: Reserved for future use when exercise cards show difficulty badges
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // FIX Cortez71 LOW-011: Function prepared for difficulty badges feature
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Reserved for future difficulty badge UI
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty.toLowerCase()) {
       case 'easy':

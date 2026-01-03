@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import logging
 
-from ...deps import get_db
+from ...deps import get_db, get_current_user
 from ...schemas.common import APIResponse
 from ...schemas.simulators import (
     IncidentStartRequest,
@@ -47,6 +47,7 @@ router = APIRouter(tags=["Incident Simulator (IR-IA)"])
 async def start_incident(
     request: IncidentStartRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[IncidentResponse]:
     """
     Inicia una simulación de respuesta a incidentes (SPRINT 6).
@@ -133,6 +134,7 @@ async def start_incident(
 async def add_diagnosis_step(
     request: DiagnosisStepRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[IncidentResponse]:
     """
     Registra un paso en el proceso de diagnóstico del incidente (SPRINT 6).
@@ -200,6 +202,7 @@ async def add_diagnosis_step(
 async def resolve_incident(
     request: IncidentSolutionRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[IncidentResponse]:
     """
     Completa la resolución del incidente (SPRINT 6).
@@ -298,6 +301,7 @@ async def resolve_incident(
 async def get_incident(
     incident_id: str,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-001
 ) -> APIResponse[IncidentResponse]:
     """Obtiene detalles completos de un incidente simulado (SPRINT 6)"""
     try:

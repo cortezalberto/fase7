@@ -33,7 +33,8 @@ class RiskDB(Base, BaseModel):
         index=True
     )
     student_id = Column(String(100), nullable=False, index=True)
-    activity_id = Column(String(100), nullable=False)
+    # FIX Cortez68 (MEDIUM): Add index for activity_id lookups
+    activity_id = Column(String(100), nullable=False, index=True)
 
     # Risk classification
     risk_type = Column(String(100), nullable=False)  # RiskType

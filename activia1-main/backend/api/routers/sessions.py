@@ -24,7 +24,7 @@ from ..schemas.session import (
     ProgressAggregation,
 )
 from ..schemas.common import APIResponse, PaginatedResponse, PaginationParams, PaginationMeta, validate_uuid_format
-from ..exceptions import SessionNotFoundError, ValidationError, DatabaseOperationError
+from ..exceptions import SessionNotFoundError, ValidationError, DatabaseOperationError, AuthorizationError
 from ..config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
@@ -223,7 +223,7 @@ async def get_session(
     session_repo: SessionRepository = Depends(get_session_repository),
     trace_repo: TraceRepository = Depends(get_trace_repository),
     risk_repo: RiskRepository = Depends(get_risk_repository),
-    _current_user: dict = Depends(get_current_user),  # FIX Cortez20: Add auth
+    current_user: dict = Depends(get_current_user),  # FIX Cortez20: Add auth
 ) -> APIResponse[SessionDetailResponse]:
     """
     Obtiene detalles completos de una sesión.
@@ -233,12 +233,14 @@ async def get_session(
         session_repo: Repositorio de sesiones (inyectado)
         trace_repo: Repositorio de trazas (inyectado)
         risk_repo: Repositorio de riesgos (inyectado)
+        current_user: Usuario autenticado (inyectado)
 
     Returns:
         APIResponse con detalles de la sesión
 
     Raises:
         SessionNotFoundError: Si la sesión no existe
+        AuthorizationError: Si el usuario no tiene acceso a la sesión
     """
     # FIX Cortez33: Validate UUID format before DB access
     session_id = validate_uuid_format(session_id, "session_id")
@@ -247,6 +249,17 @@ async def get_session(
     db_session = session_repo.get_by_id(session_id, load_relations=True)
     if not db_session:
         raise SessionNotFoundError(session_id)
+
+    # FIX Cortez68 (HIGH-001): Verify session ownership
+    user_id = current_user.get("user_id")
+    user_roles = current_user.get("roles", [])
+    is_teacher = "teacher" in user_roles or "admin" in user_roles
+    if not is_teacher and db_session.student_id != user_id:
+        raise AuthorizationError(
+            resource="session",
+            action="view",
+            reason="You can only view your own sessions"
+        )
 
     # Usar relaciones eager-loaded (ya cargadas, no generan queries adicionales)
     traces = db_session.traces
@@ -395,6 +408,7 @@ async def end_session(
     session_repo: SessionRepository = Depends(get_session_repository),
     trace_repo: TraceRepository = Depends(get_trace_repository),
     risk_repo: RiskRepository = Depends(get_risk_repository),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez68 (CRIT-002): Add authentication
 ) -> APIResponse[SessionResponse]:
     """
     Finaliza una sesión activa.
@@ -423,6 +437,17 @@ async def end_session(
     db_session = session_repo.get_by_id(session_id)
     if not db_session:
         raise SessionNotFoundError(session_id)
+
+    # FIX Cortez68 (HIGH-001): Verify session ownership
+    user_id = current_user.get("user_id")
+    user_roles = current_user.get("roles", [])
+    is_teacher = "teacher" in user_roles or "admin" in user_roles
+    if not is_teacher and db_session.student_id != user_id:
+        raise AuthorizationError(
+            resource="session",
+            action="end",
+            reason="You can only end your own sessions"
+        )
 
     # Finalizar sesión
     # FIX Cortez46: Use custom ValidationError exception
@@ -807,6 +832,7 @@ class CreateTutorRequest(BaseModel):
 async def create_tutor_session(
     request: Optional[CreateTutorRequest] = None,
     session_repo: SessionRepository = Depends(get_session_repository),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez68 (CRIT-002): Add authentication
 ) -> APIResponse[Dict[str, Any]]:
     """
     Crea una nueva sesión para el Tutor Socrático V2.0.
@@ -970,6 +996,7 @@ async def interact_with_tutor(
 async def get_session_analytics_n4(
     session_id: str,
     session_repo: SessionRepository = Depends(get_session_repository),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez68 (CRIT-002): Add authentication
 ) -> APIResponse[Dict[str, Any]]:
     """
     Obtiene analytics N4 de una sesión del tutor.

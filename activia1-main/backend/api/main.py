@@ -70,7 +70,8 @@ from .routers.git_analytics import router as git_analytics_router
 from .routers.evaluations import router as evaluations_router
 from .routers.events import router as events_router
 from .routers.exercises import router as exercises_router
-from .routers.auth_new import router as auth_new_router
+# Cortez66: Renamed from auth_new.py to auth.py
+from .routers.auth import router as auth_router
 from .routers.training import router as training_router
 from .routers.training import integration_router as training_integration_router  # Cortez50
 from .middleware import setup_exception_handlers, setup_logging_middleware
@@ -181,6 +182,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # FIX Cortez46: Use lazy logging formatting
         logger.warning("Failed to close LLM provider (non-critical): %s", e)
+
+    # FIX Cortez67 (HIGH-004): Close Redis client to release connections
+    try:
+        from .routers.training.session_storage import redis_client, USE_REDIS
+        if USE_REDIS and redis_client:
+            logger.info("Closing Redis client...")
+            redis_client.close()
+            logger.info("Redis client closed successfully")
+    except Exception as e:
+        logger.warning("Failed to close Redis client (non-critical): %s", e)
 
     # FIX Cortez35: Dispose database connection pool
     try:
@@ -404,7 +415,7 @@ app.include_router(git_analytics_router, prefix=API_V1_PREFIX)
 app.include_router(evaluations_router, prefix=API_V1_PREFIX)
 app.include_router(events_router, prefix=API_V1_PREFIX)
 app.include_router(exercises_router, prefix=API_V1_PREFIX)
-app.include_router(auth_new_router, prefix=API_V1_PREFIX)
+app.include_router(auth_router, prefix=API_V1_PREFIX)  # Cortez66: Renamed
 app.include_router(training_router, prefix=API_V1_PREFIX)
 
 # Cortez50 - Training Integration with T-IA-Cog and N4 Traceability

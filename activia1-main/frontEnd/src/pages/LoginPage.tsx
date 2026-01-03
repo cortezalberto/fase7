@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { authService } from '../services/api';
 import { Sparkles, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
 export default function LoginPage() {
   // FIX Cortez48: Demo credentials only in development mode
-  const [username, setUsername] = useState(import.meta.env.DEV ? 'demo@activia.com' : '');
-  const [password, setPassword] = useState(import.meta.env.DEV ? 'Demo1234' : '');
+  const [username, setUsername] = useState(import.meta.env.DEV ? 'student@activia.com' : '');
+  const [password, setPassword] = useState(import.meta.env.DEV ? 'Student1234' : '');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -20,13 +21,29 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
+    // FIX Cortez71 CRIT-002: Removed credential logging for security
+
     try {
       await login(username, password);
-      navigate('/dashboard');
+      // Redirect based on user role
+      const user = authService.getCurrentUser();
+      if (user?.roles?.includes('teacher')) {
+        navigate('/teacher/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: unknown) {
-      // FIX Cortez32: Use axios.isAxiosError for proper type narrowing
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.detail || 'Error al iniciar sesión');
+      // FIX Cortez71 CRIT-002: Removed all credential-related logging
+      // The interceptor transforms errors to { success: false, error: { message, error_code } }
+      const apiError = err as { success?: boolean; error?: { message?: string; error_code?: string } };
+
+      if (apiError?.error?.message) {
+        setError(apiError.error.message);
+      } else if (axios.isAxiosError(err)) {
+        const errorMsg = err.response?.data?.error?.message
+          || err.response?.data?.detail
+          || 'Credenciales incorrectas';
+        setError(errorMsg);
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
@@ -113,17 +130,29 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
+              {/* Hidden fields to trick browser autocomplete */}
+              <input type="text" name="prevent_autofill" id="prevent_autofill" style={{ display: 'none' }} />
+              <input type="password" name="password_fake" id="password_fake" style={{ display: 'none' }} />
+
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
                   Usuario o Email
                 </label>
                 <input
                   type="text"
+                  id="activia_user_field"
+                  name="activia_user_field"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20 transition-all"
                   placeholder="tu.usuario"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
+                  data-form-type="other"
+                  data-lpignore="true"
                   required
                 />
               </div>
@@ -135,10 +164,18 @@ export default function LoginPage() {
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
+                    id="activia_pass_field"
+                    name="activia_pass_field"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-4 py-3 pr-12 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/20 transition-all"
                     placeholder="••••••••"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    data-form-type="other"
+                    data-lpignore="true"
                     required
                   />
                   <button
@@ -177,20 +214,22 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Demo Credentials */}
-          <div className="mt-6 p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-            <p className="text-sm text-[var(--text-muted)] text-center mb-2">
-              Credenciales de demostración (ya pre-cargadas):
-            </p>
-            <div className="flex flex-col items-center gap-1 text-sm">
-              <code className="px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                demo@activia.com / Demo1234
-              </code>
-              <code className="px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                teacher@activia.com / Teacher1234
-              </code>
+          {/* FIX Cortez71 CRIT-001: Demo Credentials only in development */}
+          {import.meta.env.DEV && (
+            <div className="mt-6 p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+              <p className="text-sm text-[var(--text-muted)] text-center mb-2">
+                Credenciales de demostración:
+              </p>
+              <div className="flex flex-col items-center gap-1 text-sm">
+                <code className="px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                  student@activia.com / Student1234
+                </code>
+                <code className="px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                  teacher@activia.com / Teacher1234
+                </code>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

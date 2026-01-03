@@ -431,3 +431,106 @@ class UserRepository:
 
         logger.warning("User deleted (hard delete)", extra={"user_id": user.id})
         return True
+
+    # =========================================================================
+    # Academic Context Methods (Cortez65.2)
+    # =========================================================================
+
+    def update_academic_context(
+        self,
+        user_id: str,
+        course_name: Optional[str] = None,
+        commission: Optional[str] = None,
+    ) -> Optional[UserDB]:
+        """
+        Update user academic context (course and commission).
+
+        Cortez65.2: For testing phase without LTI/Moodle integration.
+
+        Args:
+            user_id: User ID
+            course_name: Course name (e.g., "Programacion I")
+            commission: Commission code (e.g., "K1021")
+
+        Returns:
+            Updated UserDB if found, None otherwise
+        """
+        user = self.get_by_id(user_id)
+        if not user:
+            return None
+
+        if course_name is not None:
+            user.course_name = course_name
+        if commission is not None:
+            user.commission = commission
+
+        user.updated_at = utc_now()
+        self.db.commit()
+        self.db.refresh(user)
+
+        logger.info(
+            "User academic context updated",
+            extra={"user_id": user.id, "course_name": course_name, "commission": commission},
+        )
+        return user
+
+    def get_by_commission(self, commission: str) -> List[UserDB]:
+        """
+        Get all active users in a specific commission.
+
+        Cortez65.2: For teacher queries without LTI.
+
+        Args:
+            commission: Commission code (e.g., "K1021")
+
+        Returns:
+            List of UserDB instances in the commission
+        """
+        return (
+            self.db.query(UserDB)
+            .filter(UserDB.commission == commission)
+            .filter(UserDB.is_active == True)
+            .order_by(UserDB.full_name)
+            .all()
+        )
+
+    def get_students_by_course(self, course_name: str) -> List[UserDB]:
+        """
+        Get all active students in a specific course.
+
+        Cortez65.2: For teacher queries without LTI.
+
+        Args:
+            course_name: Course name (e.g., "Programacion I")
+
+        Returns:
+            List of UserDB instances (students) in the course
+        """
+        dialect_name = self.db.bind.dialect.name if self.db.bind else "unknown"
+
+        if dialect_name == "postgresql":
+            return (
+                self.db.query(UserDB)
+                .filter(UserDB.course_name == course_name)
+                .filter(UserDB.is_active == True)
+                .filter(text("roles @> ARRAY['student']::varchar[]"))
+                .order_by(UserDB.full_name)
+                .all()
+            )
+        elif dialect_name == "sqlite":
+            return (
+                self.db.query(UserDB)
+                .filter(UserDB.course_name == course_name)
+                .filter(UserDB.is_active == True)
+                .filter(text("roles LIKE '%\"student\"%'"))
+                .order_by(UserDB.full_name)
+                .all()
+            )
+        else:
+            all_users = (
+                self.db.query(UserDB)
+                .filter(UserDB.course_name == course_name)
+                .filter(UserDB.is_active == True)
+                .all()
+            )
+            return [user for user in all_users if "student" in user.roles]

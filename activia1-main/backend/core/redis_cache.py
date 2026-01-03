@@ -110,21 +110,22 @@ class RedisCache:
             self._redis_client.ping()
             self._using_redis = True
 
+            # FIX Cortez69 CRIT-CORE-002: Use lazy logging, no emojis (Windows cp1252 compat)
             logger.info(
-                f"✅ Redis cache connected successfully: {redis_url.split('@')[-1]} "
-                f"(TTL: {self.ttl_seconds}s, prefix: '{self.prefix}')"
+                "Redis cache connected successfully: %s (TTL: %ss, prefix: '%s')",
+                redis_url.split('@')[-1], self.ttl_seconds, self.prefix
             )
 
         except (RedisConnectionError, RedisError) as e:
+            # FIX Cortez69 CRIT-CORE-002: Use lazy logging, no emojis
             logger.error(
-                f"❌ Failed to connect to Redis: {e}. "
-                f"Falling back to in-memory cache."
+                "Failed to connect to Redis: %s. Falling back to in-memory cache.", e
             )
             self._initialize_fallback()
         except Exception as e:
+            # FIX Cortez69 CRIT-CORE-002: Use lazy logging, no emojis
             logger.error(
-                f"❌ Unexpected error connecting to Redis: {e}. "
-                f"Falling back to in-memory cache."
+                "Unexpected error connecting to Redis: %s. Falling back to in-memory cache.", e
             )
             self._initialize_fallback()
 
@@ -135,8 +136,9 @@ class RedisCache:
         self._fallback_cache = LRUCache(max_size=1000)
         self._using_redis = False
 
+        # FIX Cortez69 CRIT-CORE-002: No emojis in logs
         logger.info(
-            "📦 Using in-memory LRU cache (fallback mode). "
+            "Using in-memory LRU cache (fallback mode). "
             "For production, configure Redis with REDIS_URL."
         )
 

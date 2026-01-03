@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
+    // FIX Cortez71 HIGH-002: Removed all credential-related logging for security
     // authService expects email, but we receive username from form
     // The backend login endpoint accepts email field
     const response = await authService.login({ email: username, password });
@@ -131,7 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
  * Note: In React 19, you can also use `use(AuthContext)` directly in components,
  * but this hook provides better error messages and type safety.
  */
-// eslint-disable-next-line react-refresh/only-export-components
+// FIX Cortez71 LOW-011: Disable needed - useAuth is a hook exported alongside AuthProvider
+// eslint-disable-next-line react-refresh/only-export-components -- Custom hook co-located with context provider
 export function useAuth(): AuthContextType {
   const context = use(AuthContext);
   if (context === null) {

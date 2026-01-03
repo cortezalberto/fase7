@@ -75,7 +75,8 @@ const AppContext = createContext<AppContextType | null>(null);
  *
  * Uses the new React 19 `use()` hook for reading context.
  */
-// eslint-disable-next-line react-refresh/only-export-components
+// FIX Cortez71 LOW-011: Disable needed - useApp is a hook exported alongside AppProvider
+// eslint-disable-next-line react-refresh/only-export-components -- Custom hook co-located with context provider
 export function useApp(): AppContextType {
   const context = use(AppContext);
   if (!context) {

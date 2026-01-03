@@ -263,7 +263,10 @@ class RiskRepository:
             Number of orphan IDs removed
         """
         try:
-            risk = self.db.query(RiskDB).filter(RiskDB.id == risk_id).first()
+            # FIX Cortez70 CRIT-DB-003: Use SELECT FOR UPDATE to prevent race conditions
+            stmt = select(RiskDB).where(RiskDB.id == risk_id).with_for_update()
+            risk = self.db.execute(stmt).scalar_one_or_none()
+
             if not risk or not risk.trace_ids:
                 return 0
 

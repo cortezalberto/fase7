@@ -153,13 +153,29 @@ class OllamaProvider(LLMProvider):
         # Fallback: stringify unknown types
         return str(value)
 
-    def _get_client(self) -> httpx.AsyncClient:
-        """Lazy initialization of HTTP client. Creates persistent connection."""
+    # FIX Cortez67 (HIGH-002): Lock for thread-safe client initialization
+    _client_lock: Optional[asyncio.Lock] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """
+        Lazy initialization of HTTP client with connection pooling.
+
+        FIX Cortez67 (HIGH-002): Added async lock for thread-safe initialization.
+        Uses double-checked locking to prevent race conditions when multiple
+        coroutines call this method simultaneously.
+        """
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout),
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
-            )
+            # Initialize lock lazily (Python class-level async locks don't work well)
+            if self._client_lock is None:
+                self._client_lock = asyncio.Lock()
+
+            async with self._client_lock:
+                if self._client is None:
+                    self._client = httpx.AsyncClient(
+                        timeout=httpx.Timeout(self.timeout),
+                        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                    )
+                    logger.debug("Created persistent HTTP client for Ollama")
         return self._client
 
     async def _get_semaphore(self) -> asyncio.Semaphore:
@@ -319,7 +335,8 @@ class OllamaProvider(LLMProvider):
         - 4xx client errors (bad request, won't fix itself)
         - JSON parsing errors (corrupted response)
         """
-        client = self._get_client()
+        # FIX Cortez68 (CRIT-001): Add missing await
+        client = await self._get_client()
 
         # Convert messages to Ollama format
         ollama_messages = self._convert_messages_to_ollama_format(messages)
@@ -440,8 +457,9 @@ class OllamaProvider(LLMProvider):
                 f"Failed to connect to Ollama server at {self.base_url} after {self.max_retries} attempts",
                 extra={"error": str(last_exception)}
             )
+            # FIX Cortez69 CRIT-CORE-002: Remove emoji (Windows cp1252 encoding)
             raise ValueError(
-                f"❌ Cannot connect to Ollama server at {self.base_url} after {self.max_retries} attempts. "
+                f"Cannot connect to Ollama server at {self.base_url} after {self.max_retries} attempts. "
                 f"Make sure Ollama is running:\n"
                 f"  1. Install Ollama: https://ollama.ai\n"
                 f"  2. Start server: ollama serve\n"
@@ -454,8 +472,9 @@ class OllamaProvider(LLMProvider):
                 f"Ollama request timed out after {self.timeout}s ({self.max_retries} attempts)",
                 extra={"model": self.model, "error": str(last_exception)}
             )
+            # FIX Cortez68: Remove emoji from error message (Windows cp1252 encoding issues)
             raise ValueError(
-                f"⏱️  Ollama request timed out after {self.timeout}s ({self.max_retries} attempts). "
+                f"Ollama request timed out after {self.timeout}s ({self.max_retries} attempts). "
                 f"Try increasing timeout or using a smaller model."
             ) from last_exception
 
@@ -464,8 +483,9 @@ class OllamaProvider(LLMProvider):
                 f"Ollama HTTP error: {last_exception.response.status_code}",
                 extra={"status_code": last_exception.response.status_code, "response": last_exception.response.text}
             )
+            # FIX Cortez69 CRIT-CORE-002: Remove emoji (Windows cp1252 encoding)
             raise ValueError(
-                f"❌ Ollama API error ({last_exception.response.status_code}): {last_exception.response.text}"
+                f"Ollama API error ({last_exception.response.status_code}): {last_exception.response.text}"
             ) from last_exception
         
         # This shouldn't happen, but just in case
@@ -513,7 +533,8 @@ class OllamaProvider(LLMProvider):
         """
         FIX Cortez34: Internal method for streaming, called within semaphore context.
         """
-        client = self._get_client()
+        # FIX Cortez68 (CRIT-001): Add missing await
+        client = await self._get_client()
 
         # Convert messages to Ollama format
         ollama_messages = self._convert_messages_to_ollama_format(messages)
@@ -577,16 +598,18 @@ class OllamaProvider(LLMProvider):
         except httpx.ConnectError as e:
             # FIX Cortez53: Use lazy logging
             logger.error("Failed to connect to Ollama server: %s", e)
+            # FIX Cortez69 CRIT-CORE-002: Remove emoji (Windows cp1252 encoding)
             raise ValueError(
-                f"❌ Cannot connect to Ollama server at {self.base_url}. "
+                f"Cannot connect to Ollama server at {self.base_url}. "
                 f"Make sure Ollama is running."
             ) from e
 
         except httpx.HTTPStatusError as e:
             # FIX Cortez53: Use lazy logging
             logger.error("Ollama streaming error: %s", e.response.status_code)
+            # FIX Cortez69 CRIT-CORE-002: Remove emoji (Windows cp1252 encoding)
             raise ValueError(
-                f"❌ Ollama API error ({e.response.status_code}): {e.response.text}"
+                f"Ollama API error ({e.response.status_code}): {e.response.text}"
             ) from e
 
     def count_tokens(self, text: str) -> int:
@@ -615,7 +638,8 @@ class OllamaProvider(LLMProvider):
         Returns:
             True if model is available, False otherwise
         """
-        client = self._get_client()
+        # FIX Cortez68 (CRIT-001): Add missing await
+        client = await self._get_client()
 
         try:
             # Get list of available models
@@ -649,7 +673,8 @@ class OllamaProvider(LLMProvider):
             >>> print(models)
             ['llama2:latest', 'mistral:7b', 'codellama:13b']
         """
-        client = self._get_client()
+        # FIX Cortez68 (CRIT-001): Add missing await
+        client = await self._get_client()
 
         try:
             response = await client.get(f"{self.base_url}/api/tags")

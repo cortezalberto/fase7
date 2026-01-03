@@ -75,9 +75,19 @@ export const STORAGE_KEYS = {
 // HTTP Constants
 export const HTTP_CONSTANTS = {
   TIMEOUT: 30000,
+  LLM_TIMEOUT: 180000, // FIX Cortez71 LOW-007: 3 minutes for LLM requests
   RETRY_ATTEMPTS: 3,
   CIRCUIT_BREAKER_THRESHOLD: 5,
   CIRCUIT_RESET_TIME: 60000,
+} as const;
+
+// FIX Cortez71 LOW-007: Transition and UI timing constants
+export const UI_TIMING = {
+  EXERCISE_TRANSITION_MS: 2000,
+  AUTO_REFRESH_INTERVAL_MS: 30000,
+  COPY_PASTE_THRESHOLD_CHARS: 50,
+  DEBOUNCE_MS: 300,
+  TOAST_DURATION_MS: 3000,
 } as const;
 
 // Editor Constants (Monaco)

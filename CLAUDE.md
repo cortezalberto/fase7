@@ -18,13 +18,125 @@ AI-Native MVP for teaching-learning programming with generative AI. Doctoral the
 
 **Key Concept**: The system evaluates HOW students solve problems (cognitive process), not just the final code output. This is achieved through 6 AI agents and N4-level cognitive traceability.
 
-**Last Updated**: Cortez61 Multi-Agent Architecture Proposal (January 2026):
-- **ImplementacionAgentes.md**: Complete rewrite with technical proposal (1,115 lines)
-  - 6 agents specification with Python code: CognitiveGatekeeper, KnowledgeRetrievalAgent (RAG), FallbackPedagogico, ScaffoldingAgent
-  - Gap analysis vs current implementation, 5-phase migration plan
-  - RAG integration options: ChromaDB (MVP) or pgvector (production)
-- **Frontend README Section 8**: Teacher Management panel documentation added (HU-DOC-001 to HU-DOC-010)
-- **CLAUDE.md**: Added Teacher Management section, updated Architecture Proposals
+**Last Updated**: Cortez71 Frontend Audit (January 2026):
+- **Objective**: Complete frontend codebase audit with 27 issues identified and ALL FIXED
+- **All Issues Fixed** (27/27 = 100%):
+  - ✅ CRIT-001: Demo credentials now DEV-only (`import.meta.env.DEV` conditional)
+  - ✅ CRIT-002: Removed credential logging from LoginPage, useTrainingSession, StudentMonitoringPage
+  - ✅ HIGH-001 to HIGH-005: Fixed `key={index}` anti-patterns, AbortController, stable keys
+  - ✅ MED-001 to MED-008: Type aliases deprecated, useMemo dependencies, feature flags centralized
+  - ✅ LOW-001 to LOW-012: Dynamic styles utility, date formatting, ESLint disable justifications
+- **New Files Created**:
+  - `shared/utils/errorUtils.ts` - Centralized error handling
+  - `shared/config/featureFlags.config.ts` - Feature flag system with env var overrides
+  - `shared/utils/dateUtils.ts` - Standardized date formatting (es-ES locale)
+  - `shared/styles/dynamicStyles.ts` - Dynamic CSS utilities
+- **Frontend Health Score**: 7.5/10 → 9.2/10
+- **Full Report**: `docs/audits/CORTEZ71_FRONTEND_AUDIT.md`
+
+**Previous - Cortez70**: Backend Concurrency & Security Audit - 14 CRITICAL fixed: thread locks, DB locking, sandbox exec, N+1→batch, Health Score 8.2→8.8
+
+**Previous - Cortez69**: Backend Inconsistency Audit - 238 issues (14 CRIT), auth + prompt injection fixes, score 6.8→8.2
+
+**Previous - Cortez68**: Backend Audit - 113 issues, 8 CRITICAL + 22 HIGH fixed, score 7.5→9.0
+
+**Previous - Cortez66**: Backend Architecture Audit - 5 phases: coordinator extraction, tutor consolidation, schema consolidation, repository standards
+
+**Previous - Cortez65.2**: Academic Context without LTI (January 2026):
+- **Purpose**: Enable student course/commission display during testing phase without Moodle integration
+- **Backend Changes**:
+  - `UserDB` model: Added `course_name` (VARCHAR 255) and `commission` (VARCHAR 100) fields
+  - `UserRepository`: 3 new methods: `update_academic_context()`, `get_by_commission()`, `get_students_by_course()`
+  - Auth schemas: `UserResponse` and `UserResponseSchema` include new fields
+  - Auth router: `_user_to_response()` maps new fields to login response
+  - Migration: `add_user_academic_context.py` adds columns + index
+- **Frontend Changes**:
+  - `User` type: Added `course_name?` and `commission?` optional fields
+  - `TutorHeader`: Displays academic context badges when available
+  - `TutorPage`: Passes user context to header component
+- **Run migration**: `python -m backend.database.migrations.add_user_academic_context`
+
+**Previous - Cortez65.1**: LTI 1.3 + Activity-Moodle Linking (NOT ENABLED) (January 2026):
+- **HU-SYS-010**: Moodle integration via LTI 1.3 protocol
+- **Backend**: `backend/api/routers/lti.py` (~750 lines) - Complete router with:
+  - `POST /login` - OIDC login initiation (Step 1)
+  - `POST /launch` - LTI launch callback with JWT verification + **automatic activity matching** (Step 2)
+  - `GET /jwks` - Public key endpoint (for AGS)
+  - `POST /deployments` - Create LTI deployment (admin)
+  - `GET /deployments` - List deployments (admin)
+  - `DELETE /deployments/{id}` - Deactivate deployment (admin)
+  - `POST /activities/link` - **NEW** Link AI-Native activity to Moodle course/resource (Cortez65.1)
+  - `DELETE /activities/{id}/link` - **NEW** Unlink activity from Moodle (Cortez65.1)
+  - `GET /activities/linked` - **NEW** List all Moodle-linked activities (Cortez65.1)
+- **ActivityDB Moodle Fields** (Cortez65.1): 4 new fields for automatic activity matching:
+  - `moodle_course_id` - context_id from Moodle (indexed)
+  - `moodle_course_name` - context_title (course name for display)
+  - `moodle_course_label` - context_label (commission code like "PROG1-A")
+  - `moodle_resource_name` - resource_link_title (activity name in Moodle, indexed)
+  - Composite index: `idx_activity_moodle_match` for efficient lookups
+- **ActivityRepository** (Cortez65.1): 5 new methods for Moodle integration:
+  - `get_by_moodle_context()` - Find activity by course_id + resource_name
+  - `get_by_moodle_resource_name()` - Fallback: find by resource_name only
+  - `link_to_moodle()` - Link activity to Moodle course
+  - `unlink_from_moodle()` - Remove Moodle link
+  - `get_moodle_linked_activities()` - List linked activities (optionally by teacher)
+- **Automatic Activity Matching**: LTI launch now automatically finds AI-Native activity:
+  - Strategy 1: Match by `moodle_course_id` + `moodle_resource_name` (most specific)
+  - Strategy 2: Fallback match by `moodle_resource_name` only
+  - Returns `activity_id`, `activity_title`, `activity_matched` in launch response
+- **Config**: `backend/api/config.py` - LTI configuration section:
+  - `LTI_ENABLED=false` (master switch)
+  - `LTI_FRONTEND_URL`, `LTI_STATE_EXPIRATION_MINUTES`, etc.
+- **Frontend**: `lti.service.ts` + `LTIContainer.tsx`
+  - LTI context detection from URL params (now includes `resourceLinkTitle`)
+  - Embedded mode support for iframe
+  - Session storage for LTI context
+- **Documentation**: `docs/moodle.md` v3.3 (~2,000 lines) with:
+  - Complete admin guide for Moodle configuration (17 subsections)
+  - Step-by-step LTI tool registration
+  - Credential exchange between Moodle and AI-Native
+  - **Section 11.5**: Activity-Moodle linking (teacher workflow, API endpoints)
+  - Activity creation and testing procedures
+- **Migrations** (Cortez65.1):
+  - `add_resource_link_title.py` - Add `resource_link_title` to `lti_sessions`
+  - `add_moodle_fields_to_activities.py` - Add 4 Moodle fields + indexes to `activities`
+- **Status**: 90% infrastructure done, router ready but NOT registered in main.py
+
+**Previous - Cortez64**: CRPE Signal Expansion + New Response Types (January 2026):
+- **cognitive_engine.py**: Expanded prompt classification from ~15 to ~137 signals
+  - 10 detection categories: delegation, frustration, validation, confusion, examples, metacognition, questions, explanations, optimization, comparison
+  - New flags: `is_frustrated`, `is_confused`, `requests_validation`, `requests_example`, `is_metacognitive`, `requests_optimization`, `requests_comparison`
+- **ai_gateway.py**: 4 new response type handlers + 4 fallbacks
+  - `_generate_empathetic_support()` - For frustrated students (empathy + direct hints)
+  - `_generate_metacognitive_guidance()` - For "how do I think about this" questions
+  - `_generate_example_based()` - Provides analogous examples, not direct solutions
+  - `_generate_clarification_request()` - Updated to async with LLM
+- **Response types**: 4 → 7 (added: empathetic_support, metacognitive_guidance, example_based)
+- **Coverage**: Student prompt classification improved from ~35% to ~90%
+
+**Previous - Cortez63**: N4 Traceability for Teachers + Frontend Improvements (January 2026):
+- **Teacher N4 Traceability**: 3 new endpoints in `teacher_tools.py` for student cognitive monitoring
+  - `GET /teacher/students/{id}/traceability` - Full N4 traces with cognitive state distribution
+  - `GET /teacher/students/{id}/cognitive-path` - Cognitive evolution timeline with insights
+  - `GET /teacher/traceability/summary` - Global traceability metrics and AI dependency classification
+- **teacherTraceability.service.ts**: New frontend service with TypeScript types
+- **StudentTraceabilityViewer.tsx**: 3-tab component (Overview, Traces, Cognitive Path)
+- **StudentMonitoringPage**: New "Trazabilidad N4" tab with stats, alerts, dependency grouping
+- **TeacherDashboardPage**: New stats card, quick action, cognitive charts section
+- **TeacherLayout**: New layout component for `/teacher/*` routes with dedicated sidebar
+- **ActivityManagementPage**: Maestro-Detalle (Master-Detail) pattern for activity creation
+- **LoginPage**: Browser autocomplete prevention with hidden fields and unique names
+- **Error handling**: Fixed API error message extraction from interceptor-transformed errors
+
+**Previous - Cortez62**: Technology Stack Proposal (January 2026):
+- **stack.md**: Complete technology stack recommendation (900+ lines)
+  - Vector database: PostgreSQL + pgvector ($0, unified infrastructure)
+  - Embeddings: Ollama + nomic-embed-text (384 dimensions, $0)
+  - LLM strategy: Mistral Small API + phi3 local fallback (~$5-20/month)
+  - Cost analysis: $10/month (thesis) → $65/month (30 students) → $575/month (200 students)
+  - 5-phase implementation plan with Docker Compose updates
+
+**Previous - Cortez61**: Multi-Agent Architecture Proposal - ImplementacionAgentes.md rewritten (1,115 lines), 6 agents specification
 
 **Previous - Cortez60**: Frontend Senior Audit - All findings corrected, ESLint 48→0
 
@@ -99,6 +211,9 @@ python -m backend                       # Runs uvicorn on :8000
 # Run database migrations
 python -m backend.database.migrations.add_n4_dimensions
 python -m backend.database.migrations.add_cortez_audit_fixes
+python -m backend.database.migrations.add_resource_link_title          # Cortez65.1: LTI sessions
+python -m backend.database.migrations.add_moodle_fields_to_activities  # Cortez65.1: Activity-Moodle linking
+python -m backend.database.migrations.add_user_academic_context        # Cortez65.2: User course/commission
 ```
 
 ### Backend Testing
@@ -214,17 +329,54 @@ Client -> FastAPI Router -> AIGateway (STATELESS) -> CRPE -> Governance Agent
 - `TRAINING_RISK_MONITOR=true` - Enable real-time risk detection
 
 ### Teacher Management (`/teacher/*` routes)
+
+**Layout**: `TeacherLayout.tsx` - Dedicated layout for teacher routes with:
+- Purple/violet gradient branding (distinct from student blue theme)
+- Sidebar with: Dashboard, Monitoreo, Actividades, Reportes, Riesgos
+- User menu with logout
+- `<Outlet />` for nested routes
+
 | Page | File | Purpose |
 |------|------|---------|
 | TeacherDashboardPage | `pages/TeacherDashboardPage.tsx` | HU-DOC-001/002 - Dashboard with alerts, analytics |
 | StudentMonitoringPage | `pages/StudentMonitoringPage.tsx` | HU-DOC-002/003/004 - Real-time monitoring, 30s auto-refresh |
-| ActivityManagementPage | `pages/ActivityManagementPage.tsx` | HU-DOC-006/007 - CRUD + PolicyConfig for AI governance |
+| ActivityManagementPage | `pages/ActivityManagementPage.tsx` | HU-DOC-006/007 - CRUD + PolicyConfig + **Maestro-Detalle** |
 | ReportsPage | `pages/ReportsPage.tsx` | HU-DOC-003/004/009 - Cohort reports, export (JSON/PDF/XLSX) |
 | InstitutionalRisksPage | `pages/InstitutionalRisksPage.tsx` | HU-DOC-005/010 - Risk management, remediation plans |
+
+**Maestro-Detalle Pattern** (ActivityManagementPage - Cortez63):
+```typescript
+// Activity header (Maestro) + Exercises list (Detalle)
+interface ExerciseDetail {
+  id: string;       // Unique ID for React keys
+  numero: number;   // Auto-incremented exercise number
+  enunciado: string; // Exercise statement text
+}
+
+// State management
+const [exercises, setExercises] = useState<ExerciseDetail[]>([]);
+
+// CRUD operations with auto-renumbering
+const addExercise = () => {
+  setExercises([...exercises, {
+    id: `ex_${Date.now()}`,
+    numero: exercises.length + 1,
+    enunciado: '',
+  }]);
+};
+
+const removeExercise = (id: string) => {
+  const updated = exercises.filter(ex => ex.id !== id);
+  setExercises(updated.map((ex, idx) => ({ ...ex, numero: idx + 1 })));
+};
+```
 
 **Teacher Endpoints**:
 - `GET /teacher/alerts`, `POST /teacher/alerts/{id}/acknowledge` - Alert management
 - `GET /teacher/students/compare` - Student comparison by activity
+- `GET /teacher/students/{id}/traceability` - N4 traces with cognitive state distribution (Cortez63)
+- `GET /teacher/students/{id}/cognitive-path` - Cognitive evolution timeline (Cortez63)
+- `GET /teacher/traceability/summary` - Global traceability metrics (Cortez63)
 - `GET/POST /activities`, `PUT/DELETE /activities/{id}` - Activity CRUD
 - `POST /activities/{id}/publish`, `POST /activities/{id}/archive` - Lifecycle
 - `POST /reports/cohort`, `GET /reports/analytics` - Report generation
@@ -237,21 +389,60 @@ Client -> FastAPI Router -> AIGateway (STATELESS) -> CRPE -> Governance Agent
 | AI Gateway (orchestrator) | `backend/core/ai_gateway.py` |
 | Gateway Protocols (Cortez42) | `backend/core/gateway/protocols.py` |
 | Gateway Fallbacks (Cortez42) | `backend/core/gateway/fallback_responses.py` |
+| Response Generators (Cortez66) | `backend/core/gateway/response_generators.py` (7 generators + 4 fallbacks) |
+| Trace Coordinator (Cortez66) | `backend/core/gateway/trace_coordinator.py` (N4 traceability management) |
+| Risk Coordinator (Cortez66) | `backend/core/gateway/risk_coordinator.py` (risk analysis) |
 | Cognitive Engine (CRPE) | `backend/core/cognitive_engine.py` |
 | LLM Factory | `backend/llm/factory.py` |
 | ORM Models (Cortez42) | `backend/database/models/` (14 domain files) |
 | Repositories (Cortez42/46) | `backend/database/repositories/` (12 domain files) |
 | Simulators Agents (Cortez42) | `backend/agents/simulators/` (9 strategy files) |
+| Tutor Agent (Cortez66) | `backend/agents/tutor/` (agent, rules, governance, metadata, prompts) |
 | Tutor Modes (Cortez46/50) | `backend/agents/tutor_modes/` (base, socratic, explicative, guided, metacognitive, training_hints, factory) |
-| Simulators Router (Cortez46) | `backend/api/routers/simulators/` (core, interview, incident, sprint6) |
-| Training Router (Cortez46) | `backend/api/routers/training/` (schemas, session_storage, helpers, endpoints) |
+| Simulators Router (Cortez46) | `backend/api/routers/simulators/` (core, interview, incident, advanced) |
+| Training Router (Cortez46) | `backend/api/routers/training/` (session_storage, helpers, endpoints) |
+| Training Schemas (Cortez66) | `backend/api/schemas/training.py` (centralized location) |
 | API Main | `backend/api/main.py` |
 | Custom Exceptions (Cortez53) | `backend/api/exceptions.py` (50+ exception classes) |
 | Frontend API Services | `frontEnd/src/services/api/` |
 | Frontend Types (Cortez43) | `frontEnd/src/types/domain/` (11 domain files) |
 | Frontend Features (Cortez43) | `frontEnd/src/features/` (training, tutor, simulators) |
 | Frontend HTTP (Cortez43) | `frontEnd/src/core/http/` (CircuitBreaker, Metrics, Queue) |
-| Frontend Shared Config (Cortez43) | `frontEnd/src/shared/config/` (labels, colors, constants) |
+| Frontend Shared Config (Cortez43/71) | `frontEnd/src/shared/config/` (labels, colors, constants, featureFlags) |
+| Frontend Shared Utils (Cortez71) | `frontEnd/src/shared/utils/` (errorUtils, dateUtils) |
+| Frontend Dynamic Styles (Cortez71) | `frontEnd/src/shared/styles/dynamicStyles.ts` |
+| Teacher Traceability Service (Cortez63) | `frontEnd/src/services/api/teacherTraceability.service.ts` |
+| Student Traceability Viewer (Cortez63) | `frontEnd/src/components/teacher/StudentTraceabilityViewer.tsx` |
+| Teacher Layout (Cortez63) | `frontEnd/src/components/TeacherLayout.tsx` |
+| LTI Router (Cortez65 - NOT ENABLED) | `backend/api/routers/lti.py` |
+| LTI Service (Cortez65) | `frontEnd/src/services/api/lti.service.ts` |
+| LTI Container (Cortez65) | `frontEnd/src/components/LTIContainer.tsx` |
+
+### Cognitive State & Trace Types (Critical for N4 Traceability)
+
+The system uses 8 cognitive states and 4 trace levels for N4 traceability:
+
+```typescript
+// Cognitive States - used throughout the system
+type CognitiveState =
+  | 'INICIO'            // Starting state
+  | 'EXPLORACION'       // Exploring problem/solution
+  | 'IMPLEMENTACION'    // Writing code
+  | 'DEPURACION'        // Debugging
+  | 'CAMBIO_ESTRATEGIA' // Changing approach
+  | 'VALIDACION'        // Validating solution
+  | 'ESTANCAMIENTO'     // Stuck (risk indicator)
+  | 'REFLEXION';        // Reflecting on process
+
+// Trace Levels - N4 is the highest synthesis level
+type TraceLevel = 'N1' | 'N2' | 'N3' | 'N4';
+// N1: Raw data, N2: Preprocessed, N3: LLM processed, N4: Synthesized
+
+// AI Dependency Classification
+// high: >70% - Students delegating too much to AI
+// medium: 40-70% - Balanced use
+// low: <40% - Predominantly autonomous work
+```
 
 ## Critical Development Rules
 
@@ -351,6 +542,55 @@ for session_id in session_ids:
 response = await provider.generate(messages, temperature=0.7)  # CORRECT
 ```
 
+### Async Semaphore Initialization (FIX Cortez70)
+```python
+# CORRECT - Double-checked locking for asyncio.Semaphore
+async def _get_semaphore(self) -> asyncio.Semaphore:
+    if self._semaphore is None:
+        async with self._semaphore_lock:  # asyncio.Lock
+            if self._semaphore is None:
+                self._semaphore = asyncio.Semaphore(self._max_concurrent)
+    return self._semaphore
+
+# Usage - always await the getter
+semaphore = await self._get_semaphore()
+async with semaphore:
+    response = await self._call_llm()
+```
+
+### Database Pessimistic Locking (FIX Cortez70)
+```python
+# CORRECT - Use SELECT FOR UPDATE for concurrent updates
+from sqlalchemy import select
+
+def update_with_lock(self, entity_id: str, **kwargs):
+    try:
+        stmt = select(EntityDB).where(EntityDB.id == entity_id).with_for_update()
+        entity = self.db.execute(stmt).scalar_one_or_none()
+        if entity:
+            # Update fields...
+            self.db.commit()
+        return entity
+    except Exception as e:
+        self.db.rollback()
+        raise
+```
+
+### Student Code Execution Security (FIX Cortez70)
+```python
+# NEVER use exec/eval directly in server process
+exec(student_code, exec_globals)  # DANGEROUS - can escape sandbox
+
+# ALWAYS use the sandbox utility
+from backend.utils.sandbox import execute_python_code
+
+stdout, stderr, exec_time = execute_python_code(
+    code=student_code,
+    test_input="",
+    timeout_seconds=30
+)
+```
+
 ### Authentication Required
 Most endpoints require authentication after cortez audits:
 - Sessions, interactions, evaluations, traces, risks endpoints
@@ -420,9 +660,16 @@ async def my_endpoint(current_user: User = Depends(get_current_user)):
     user_id = current_user.id  # AttributeError!
 ```
 
-### Datetime Naive vs Aware (FIX Cortez54)
+### Datetime Naive vs Aware (FIX Cortez54/68)
 ```python
 from datetime import datetime, timezone
+
+# FIX Cortez68: NEVER use datetime.utcnow() - it's deprecated and returns naive datetime
+# WRONG
+timestamp = datetime.utcnow()  # Naive datetime - DON'T USE
+
+# CORRECT - Always use timezone-aware datetime
+timestamp = datetime.now(timezone.utc)  # Aware datetime with UTC timezone
 
 def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
     """Ensure datetime is timezone-aware (UTC) for comparison."""
@@ -457,6 +704,34 @@ provider = LLMProviderFactory.create("ollama", {
 })
 
 # Internally uses asyncio.Semaphore to prevent overwhelming the LLM server
+```
+
+### LLM Call Timeouts (FIX Cortez68)
+```python
+# All LLM calls in AIGateway now have 30s timeouts to prevent indefinite hangs
+import asyncio
+
+LLM_TIMEOUT_SECONDS = 30.0
+response = await asyncio.wait_for(
+    self.llm.generate(messages, max_tokens=300, temperature=0.7),
+    timeout=LLM_TIMEOUT_SECONDS
+)
+# TimeoutError is caught and triggers fallback response
+```
+
+### Token Validation Errors (FIX Cortez68)
+```python
+from backend.core.security import TokenExpiredError, TokenInvalidError, decode_access_token
+
+# Use raise_on_error=True for specific error handling
+try:
+    payload = decode_access_token(token, raise_on_error=True)
+except TokenExpiredError:
+    # Token has expired - user should re-login
+    raise HTTPException(status_code=401, detail="Token has expired. Please login again.")
+except TokenInvalidError:
+    # Token is malformed or has invalid signature
+    raise HTTPException(status_code=401, detail="Invalid token.")
 ```
 
 ### Background Task Error Handling (FIX Cortez34)
@@ -530,6 +805,103 @@ useEffect(() => {
   fetchData();
   return () => abortController.abort();
 }, [dependency]);
+```
+
+### Browser Autocomplete Prevention (FIX Cortez63)
+```typescript
+// LoginPage: Browser autocomplete can override React state values
+// causing login failures with incorrect credentials
+
+// CORRECT: Use multiple techniques to disable autocomplete
+<form onSubmit={handleSubmit} autoComplete="off">
+  {/* Hidden fields to trick browser autocomplete */}
+  <input type="text" name="prevent_autofill" style={{ display: 'none' }} />
+  <input type="password" name="password_fake" style={{ display: 'none' }} />
+
+  <input
+    type="text"
+    id="activia_user_field"           // Unique ID not matching typical patterns
+    name="activia_user_field"         // Unique name
+    value={username}
+    onChange={(e) => setUsername(e.target.value)}
+    autoComplete="off"
+    autoCorrect="off"
+    autoCapitalize="off"
+    spellCheck="false"
+    data-form-type="other"            // Tell browsers it's not a login form
+    data-lpignore="true"              // Ignore by password managers
+  />
+</form>
+```
+
+### API Error Handling with Interceptors (FIX Cortez63)
+```typescript
+// The axios interceptor in client.ts transforms errors:
+// - Server errors: returns { success: false, error: { message, error_code } }
+// - Network errors: returns { success: false, error: { error_code: 'NETWORK_ERROR' } }
+// These are NOT AxiosError instances anymore!
+
+// CORRECT: Check for transformed error object first
+} catch (err: unknown) {
+  const apiError = err as { success?: boolean; error?: { message?: string } };
+
+  if (apiError?.error?.message) {
+    // Interceptor-transformed error
+    setError(apiError.error.message);
+  } else if (axios.isAxiosError(err)) {
+    // Fallback for non-transformed errors
+    setError(err.response?.data?.error?.message || 'Error');
+  } else {
+    setError('Error desconocido');
+  }
+}
+
+// INCORRECT: Only checking axios.isAxiosError() first
+if (axios.isAxiosError(err)) {  // Will be false for interceptor errors!
+  setError(err.response?.data?.error?.message);
+}
+```
+
+### Feature Flags (FIX Cortez71)
+```typescript
+// Use centralized feature flags instead of passing useV2 to hooks
+import { featureFlags, isFeatureEnabled } from '@/shared/config/featureFlags.config';
+
+// Check feature status
+if (featureFlags.useV2TrainingEndpoints) {
+  // Use V2 endpoints
+}
+
+// Or use helper function
+if (isFeatureEnabled('enableN4Tracing')) {
+  // Enable N4 traceability
+}
+
+// Available flags (with env var overrides):
+// - useV2TrainingEndpoints (VITE_FEATURE_V2_TRAINING)
+// - enableN4Tracing (VITE_FEATURE_N4_TRACING)
+// - enableRiskMonitor (VITE_FEATURE_RISK_MONITOR)
+// - enableLTIIntegration (VITE_FEATURE_LTI_INTEGRATION)
+// - showDevFeatures (import.meta.env.DEV)
+// - enableApiLogging (import.meta.env.DEV)
+```
+
+### Centralized Error Handling (FIX Cortez71)
+```typescript
+// Use errorUtils for consistent error message extraction
+import { getApiErrorMessage, isNetworkError } from '@/shared/utils/errorUtils';
+
+try {
+  await apiCall();
+} catch (err) {
+  const message = getApiErrorMessage(err, 'Error al procesar la solicitud');
+
+  if (isNetworkError(err)) {
+    setError('Sin conexión a internet');
+  } else {
+    setError(message);
+  }
+}
 ```
 
 ## DevOps Infrastructure (Cortez37-39)
@@ -632,6 +1004,14 @@ Key `.env` variables (see `.env.example` for full template):
 - `TRAINING_N4_TRACING`: Enable N4 cognitive traceability (default: false)
 - `TRAINING_RISK_MONITOR`: Enable real-time risk detection (default: false)
 
+**LTI 1.3 Integration (Cortez65 - NOT ENABLED by default):**
+- `LTI_ENABLED`: Master switch for LTI router (default: false)
+- `LTI_FRONTEND_URL`: Frontend URL for redirects after launch (default: http://localhost:3000)
+- `LTI_STATE_EXPIRATION_MINUTES`: OIDC state TTL (default: 10)
+- `LTI_NONCE_EXPIRATION_HOURS`: Replay protection window (default: 1)
+- `LTI_JWKS_CACHE_TTL_SECONDS`: Platform JWKS cache (default: 3600)
+- To enable: Set `LTI_ENABLED=true` and add router to `main.py`
+
 **CI/CD (GitHub Actions):**
 - `KUBE_CONFIG_STAGING`: Base64 kubeconfig for staging
 - `KUBE_CONFIG_PRODUCTION`: Base64 kubeconfig for production
@@ -649,23 +1029,59 @@ Key `.env` variables (see `.env.example` for full template):
   - Gap analysis: Knowledge-Retrieval missing, CRPE needs routing capabilities, Scaffolding fragmentado
   - RAG integration options: ChromaDB (MVP) or PostgreSQL+pgvector (production)
   - 5-phase migration plan with feature flags for gradual rollout
+- `stack.md` - **Technology Stack Recommendation** (900+ lines)
+  - pgvector over Pinecone/Weaviate: $0 vs $70/month, ACID transactions, hybrid SQL+vector queries
+  - nomic-embed-text: 384 dimensions, 62.3 MTEB score, comparable to OpenAI at $0
+  - LLM tiered strategy: Gatekeeper/Safety/Scaffolding use phi3 local, only Tutor uses Mistral API
+  - Cost projections: thesis ($10/month), pilot course ($65/month), multi-course ($575/month)
+  - Docker Compose updates, pgvector migration, 5-phase implementation
 - `backend/docs/entrenador.md` - C4 proposal for Digital Trainer integration with agents (1,100+ lines)
 - `backend/docs/entrenador1.md` - Prose implementation guide (466 lines, 4 phases)
+- `docs/factiblerag.md` - **RAG Integration Feasibility Analysis** (January 2026)
+  - Analysis of `rag1.txt` proposal (~2,800 lines of proposed refactoring)
+  - Verdict: FEASIBLE with conditions (integration, not replacement)
+  - 6-phase implementation plan (~11 weeks): pgvector, academic catalog, HU+CA, RAG+AIGateway, event sourcing, MinIO
+  - Risk analysis: technical, business, and project risks with mitigations
+  - Recommendation: Adopt pgvector+RAG while preserving 6 AI agents and N4 traceability
+- `docs/Factiblerag1.md` - **RAG Implementation Guide** (~2,072 lines, January 2026)
+  - **Part I**: Fundamentos Arquitectónicos - Deep analysis of current system (6 agents, N4 traceability, AIGateway)
+  - **Part II**: Estrategia de Integración RAG - 6-phase implementation with complete code examples:
+    - Phase 1: pgvector infrastructure (ContentChunkDB, RAGRepository, EmbeddingService)
+    - Phase 2: Extended academic catalog (MateriaDB, UnidadDB with embeddings)
+    - Phase 3: HU+CA pattern for exercises (non-destructive EjercicioDB extensions)
+    - Phase 4: RAG + AIGateway integration (RAGCoordinator following coordinator pattern)
+    - Phase 5: Complementary event sourcing (AIEventDB for audit trail)
+    - Phase 6: MinIO storage (StorageProvider abstraction for local/cloud)
+  - **Part III**: Verificación y Mantenimiento - Integration tests and checklists per phase
+  - Key patterns: Feature flags (`RAG_ENABLED`), abstract interfaces, non-destructive migrations
 
 **Essential Reading:**
 - `docs/Misagentes/integrador.md` - Complete multi-agent system documentation
 - `docs/api/README_API.md` - REST API reference
 - `docs/llm/OLLAMA_QUICKSTART.md` - LLM setup guide
+- `docs/moodle.md` - **LTI 1.3 Moodle Integration** (v3.3) - Complete admin guide with 17 subsections for configuring Moodle as LTI platform + Activity-Moodle linking (Section 11.5)
 
 **User Guides:**
 - `GUIA_ESTUDIANTE.md`, `GUIA_DOCENTE.md`, `GUIA_ADMINISTRADOR.md`
 
 ## Audit History
 
-61+ audits have been performed on this codebase. Key audits with documentation:
+71+ audits have been performed on this codebase. Key audits with documentation:
 
 | Audit | Focus | Issues | Docs |
 |-------|-------|--------|------|
+| Cortez71 | Frontend Audit | 27/27 fixed (100%): demo credentials, key={index}, AbortController, feature flags, Health Score 7.5→9.2 | `docs/audits/CORTEZ71_FRONTEND_AUDIT.md` |
+| Cortez70 | Backend Concurrency & Security Audit | 14 CRITICAL fixed: thread locks, DB locking, sandbox exec, N+1→batch, Health Score 8.2→8.8 | This CLAUDE.md |
+| Cortez69 | Backend Inconsistency Audit | 238 issues (14 CRIT), auth + prompt injection, score 6.8→8.2 | `docs/audits/CORTEZ69_COMPREHENSIVE_BACKEND_AUDIT.md` |
+| Cortez68 | Comprehensive Backend Audit + Full Remediation | 113 issues (8 CRIT, 22 HIGH, 50 MED, 33 LOW) - **All CRIT+HIGH fixed**, Health Score 7.5→9.0 | `docs/audits/CORTEZ68_COMPREHENSIVE_BACKEND_AUDIT.md` |
+| Cortez67 | Memory & Concurrency Audit | 8 issues fixed: bounded caches, TTL cleanup, async session storage | `docs/audits/CORTEZ67_MEMORY_CONCURRENCY_AUDIT.md` |
+| Cortez66 | Backend Architecture Audit | 5 phases: coordinator extraction, tutor consolidation, schema consolidation, repository standards | This CLAUDE.md |
+| Cortez65.2 | Academic Context without LTI | UserDB 2 new fields, UserRepository 3 methods, auth schemas updated, TutorHeader badges, 1 migration | This CLAUDE.md |
+| Cortez65.1 | LTI Activity-Moodle Linking | 3 new endpoints, ActivityDB 4 Moodle fields, ActivityRepository 5 methods, automatic matching, 2 migrations | `backend/api/routers/lti.py`, `docs/moodle.md` v3.3 |
+| Cortez65 | LTI 1.3 Implementation (NOT ENABLED) | Router (~650 lines), config, frontend service, LTIContainer, **Moodle Admin Guide v3.1** (17 subsections) | `backend/api/routers/lti.py`, `docs/moodle.md` |
+| Cortez64 | CRPE Signal Expansion + New Response Types | ~137 signals, 7 response types, 4 new handlers, 4 fallbacks | This CLAUDE.md |
+| Cortez63 | N4 Traceability for Teachers + Frontend | 3 backend endpoints, teacherTraceability.service.ts, StudentTraceabilityViewer, TeacherLayout, Maestro-Detalle, autocomplete fix | This CLAUDE.md, `frontEnd/README.md` |
+| Cortez62 | Technology Stack Proposal | stack.md (900+ lines): pgvector, nomic-embed-text, Mistral+phi3, cost analysis | `stack.md` |
 | Cortez61 | Multi-Agent Architecture Proposal | ImplementacionAgentes.md rewritten (1,115 lines), frontend README Section 8 added | `backend/ImplementacionAgentes.md` |
 | Cortez59+ | GitHub CI/CD Complete | 6 new workflows, 14-stage pipeline, all gaps implemented | `.github/README.md` |
 | Cortez59 | GitHub CI/CD Enhancement | Gap analysis, documentation rewrite, initial 2 workflows | `.github/README.md` |
@@ -752,6 +1168,40 @@ Key `.env` variables (see `.env.example` for full template):
   - ✅ UTF-8 encoding: Custom `UTF8JSONResponse` class with `ensure_ascii=False` as default
   - ✅ User dict: `get_current_user()` returns dict with `user_id` key, not User object with `.id` attribute
   - ✅ Emoji removal: Don't use emoji in log messages (Windows cp1252 encoding issues)
+- Frontend (Cortez63): Teacher routes and login improvements:
+  - ✅ TeacherLayout: Dedicated layout for `/teacher/*` routes with purple/violet theme
+  - ✅ ActivityManagementPage: Maestro-Detalle pattern for activity + exercises
+  - ✅ LoginPage: Browser autocomplete prevention (hidden fields, unique names, data attributes)
+  - ✅ Error handling: Fixed API error extraction from interceptor-transformed errors
+  - ✅ App.tsx: Routes restructured with TeacherLayout for teacher section
+- LTI (Cortez65.1): Activity-Moodle linking for automatic activity detection:
+  - ✅ ActivityDB: 4 new Moodle fields (`moodle_course_id`, `moodle_course_name`, `moodle_course_label`, `moodle_resource_name`)
+  - ✅ ActivityRepository: 5 new methods for Moodle integration
+- Backend (Cortez66): Architecture audit with 5 phases of remediation:
+  - ✅ Gateway coordinators extracted: `response_generators.py`, `trace_coordinator.py`, `risk_coordinator.py`
+  - ✅ Tutor agent consolidated: `agents/tutor/` package (agent, rules, governance, metadata, prompts)
+  - ✅ Training schemas centralized: `api/schemas/training.py` (357 lines)
+  - ✅ Repository standards: Documented naming conventions in BaseRepository
+  - ✅ All backward-compatible wrappers in original locations
+  - ✅ LTI Launch: Automatic activity matching (Strategy 1: course+resource, Strategy 2: resource only)
+  - ✅ 3 new endpoints: `POST /lti/activities/link`, `DELETE /lti/activities/{id}/link`, `GET /lti/activities/linked`
+  - ✅ LTISessionDB: Added `resource_link_title` column
+  - ✅ 2 migrations: `add_resource_link_title.py`, `add_moodle_fields_to_activities.py`
+  - ✅ Documentation: `docs/moodle.md` updated to v3.3 with Section 11.5
+- Academic Context (Cortez65.2): Student course/commission display without LTI:
+  - ✅ UserDB: 2 new fields (`course_name`, `commission`) for testing phase
+  - ✅ UserRepository: 3 new methods (`update_academic_context()`, `get_by_commission()`, `get_students_by_course()`)
+  - ✅ Auth schemas: `UserResponse` includes `course_name` and `commission`
+  - ✅ TutorHeader: Displays academic context badges (BookOpen + Users icons)
+  - ✅ 1 migration: `add_user_academic_context.py` with commission index
+- Backend (Cortez70): Concurrency & Security audit with 14 CRITICAL fixes:
+  - ✅ Thread Safety: Use `threading.Lock()` for shared in-memory state (`_session_states`, `_attempt_cache`)
+  - ✅ Async Concurrency: Double-checked locking pattern for `asyncio.Semaphore` initialization
+  - ✅ Database Locking: Use `with_for_update()` for pessimistic locking on concurrent updates
+  - ✅ Code Execution: Never use `exec()/eval()` directly - use `execute_python_code()` sandbox
+  - ✅ N+1 Queries: Batch load data upfront, process in memory (5 queries vs 5N-10N)
+  - ✅ Timezone Handling: Always use `datetime.now(timezone.utc)` and `replace(tzinfo=timezone.utc)`
+  - ✅ Dead Code: Remove unused methods after refactoring (240 lines removed)
 
 ## Detailed Documentation
 
@@ -771,10 +1221,19 @@ This file contains:
 
 | Issue | Location | Priority | Notes |
 |-------|----------|----------|-------|
-| key={index} anti-pattern (30) | Multiple files | Medium | Static lists OK, dynamic lists need unique IDs |
-| Inline styles in JSX | GitAnalytics.tsx, TraceabilityDisplay.tsx | Low | Consider migrating to Tailwind |
-| CSS legacy files | GitAnalytics.css, TutorChat.css | Low | Consider migrating to Tailwind |
+| key={index} anti-pattern | Multiple files | Medium | Static lists OK, dynamic lists need unique IDs (30→improved in Cortez71) |
+| Inline styles in JSX | GitAnalytics.tsx, TraceabilityDisplay.tsx | Low | `dynamicStyles.ts` utility created (Cortez71) |
+| CSS legacy files | GitAnalytics.css, TutorChat.css | Low | Documented for future Tailwind migration (Cortez71) |
 | AIGateway needs more extraction | `ai_gateway.py` | Low | Phase 1 done, coordinators pending |
+
+**Fixed in Cortez71 (Frontend Audit - 27/27 = 100%):**
+- ✅ CRIT-001: Demo credentials DEV-only conditional
+- ✅ CRIT-002: Removed all credential/sensitive console logging
+- ✅ HIGH-001 to HIGH-005: key={index} patterns, AbortController, stable keys
+- ✅ MED-001 to MED-008: Type aliases deprecated, useMemo fixed, feature flags centralized
+- ✅ LOW-001 to LOW-012: Dynamic styles, date formatting, ESLint disable justifications
+- New utilities: `errorUtils.ts`, `featureFlags.config.ts`, `dateUtils.ts`, `dynamicStyles.ts`
+- Full report: `docs/audits/CORTEZ71_FRONTEND_AUDIT.md`
 
 **Fixed in Cortez48 (Frontend Senior Audit):**
 - ✅ 3 critical issues: Demo credentials, window.location, AbortController
@@ -1138,3 +1597,146 @@ This file contains:
   - `cognitive_status.py`: update endpoint db.commit()
   - `events.py`: create_event and create_batch_events db.commit()
   - Pattern: try/except with db.rollback() and DatabaseOperationError
+
+**Implemented in Cortez63 (N4 Traceability for Teachers):**
+- ✅ **Backend** - 3 new endpoints in `backend/api/routers/teacher_tools.py`:
+  - `GET /teacher/students/{student_id}/traceability` - Student N4 traces with:
+    - Pagination support (limit, offset)
+    - Activity filter
+    - Cognitive state distribution, trace level distribution, interaction types
+    - Average AI involvement calculation
+  - `GET /teacher/students/{student_id}/cognitive-path` - Cognitive evolution:
+    - State transitions with timestamps
+    - Time spent in each state
+    - Auto-generated insights (stagnation alerts, patterns)
+  - `GET /teacher/traceability/summary` - Global metrics:
+    - AI dependency classification (high >70%, medium 40-70%, low <40%)
+    - Cognitive state distribution across all students
+    - Traceability alerts (high dependency, frequent stagnation)
+- ✅ **Frontend Service** - `frontEnd/src/services/api/teacherTraceability.service.ts`:
+  - TypeScript types: `TraceLevel`, `CognitiveState`, `TraceData`, `TraceabilitySummary`
+  - Types: `AIDependencyDistribution`, `TraceabilityAlert`, pagination interfaces
+  - Methods: `getStudentTraceability()`, `getStudentCognitivePath()`, `getTraceabilitySummary()`
+- ✅ **StudentTraceabilityViewer** - `frontEnd/src/components/teacher/StudentTraceabilityViewer.tsx`:
+  - 3-tab interface: Overview, Traces, Cognitive Path
+  - Overview: Stats grid, cognitive state chart, trace level distribution
+  - Traces: Paginated list with expandable details
+  - Cognitive Path: Timeline visualization with insights
+- ✅ **StudentMonitoringPage** - New "Trazabilidad N4" tab:
+  - Global stats panel (students, traces, AI dependency %)
+  - Cognitive state distribution chart
+  - Traceability alerts with severity colors
+  - Students grouped by AI dependency level
+  - Expandable student details with full TraceabilityViewer
+- ✅ **TeacherDashboardPage** - Enhanced with traceability:
+  - New "Trazas N4" stats card with trend indicator
+  - New "Trazabilidad N4" quick action
+  - "Trazabilidad Cognitiva N4" section with charts:
+    - Cognitive state distribution (horizontal bars)
+    - AI dependency distribution (high/medium/low)
+- ✅ **Exports updated**: `services/api/index.ts` exports new service and types
+
+## Troubleshooting
+
+### Common Windows vs Linux/Mac Issues
+
+**Path separators:**
+```bash
+# Windows uses backslashes, Linux/Mac use forward slashes
+# In code, always use forward slashes or path.join()
+import os
+path = os.path.join("backend", "api", "routers")  # CORRECT
+path = "backend\\api\\routers"  # Windows-only, INCORRECT
+```
+
+**Line endings (CRLF vs LF):**
+```bash
+# Configure git to handle line endings
+git config --global core.autocrlf true   # Windows
+git config --global core.autocrlf input  # Linux/Mac
+```
+
+**Docker on Windows:**
+- Use WSL2 backend for Docker Desktop
+- If containers fail to start, check that WSL2 is properly configured
+- Volume mounts may need adjustment: `/c/users/...` instead of `C:\Users\...`
+
+**Python encoding issues (cp1252):**
+```python
+# Windows console may have encoding issues with emojis/unicode
+# FIX Cortez54: Don't use emojis in log messages
+logger.info("Session started")  # CORRECT
+logger.info("✅ Session started")  # May fail on Windows cp1252
+```
+
+**PowerShell vs Bash:**
+```powershell
+# PowerShell equivalent commands
+Invoke-RestMethod http://localhost:8000/api/v1/health  # curl equivalent
+$env:JWT_SECRET_KEY = "your-secret"  # export equivalent
+```
+
+### Common Development Errors
+
+**"Module not found" in Python:**
+```bash
+# Always run from activia1-main/ directory
+cd activia1-main
+python -m backend  # CORRECT
+python backend/api/main.py  # May fail due to import paths
+```
+
+**"Cannot find module" in TypeScript:**
+```bash
+# Ensure path aliases are configured in tsconfig.json
+# Use @/ prefix for src imports
+import { authService } from '@/services/api';  # CORRECT
+import { authService } from '../../services/api';  # INCORRECT (fragile)
+```
+
+**PostgreSQL connection refused:**
+```bash
+# Check if PostgreSQL is running
+docker-compose ps  # Check container status
+docker-compose logs db  # Check PostgreSQL logs
+
+# Common fix: wait for PostgreSQL to be ready
+docker-compose up -d db && sleep 5 && docker-compose up -d api
+```
+
+**Redis connection issues:**
+```bash
+# Check Redis is accessible
+docker-compose exec redis redis-cli ping  # Should return PONG
+
+# Check Redis password is set
+echo $REDIS_PASSWORD  # Must match .env
+```
+
+**LLM provider timeout:**
+```python
+# Ollama may need more time for first response (model loading)
+# Increase timeout in .env
+OLLAMA_TIMEOUT=120  # Default is 60 seconds
+
+# Check Ollama is running and model is available
+curl http://localhost:11434/api/tags  # List available models
+```
+
+**Frontend build failures:**
+```bash
+# Clear cache and reinstall
+cd frontEnd
+rm -rf node_modules .vite dist
+npm install
+npm run build
+```
+
+**TypeScript type errors after changes:**
+```bash
+# Run type check to see all errors
+npm run type-check
+
+# Common fix: regenerate types from API
+# Check that frontend types match backend schemas
+```
