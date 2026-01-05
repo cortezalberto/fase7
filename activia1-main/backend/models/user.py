@@ -14,6 +14,7 @@ import enum
 class UserRole(str, enum.Enum):
     """User roles for authorization"""
     STUDENT = "student"
+    TEACHER = "teacher"  # FIX Cortez79: Added teacher role for docente panel
     TUTOR = "tutor"
     ADMIN = "admin"
 

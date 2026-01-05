@@ -67,7 +67,8 @@ function TraceabilityDisplay({ data }: TraceabilityDisplayProps) {
         </div>
         <div className="glass rounded-xl p-4 text-center">
           <div className="text-2xl mb-1">📊</div>
-          <div className="text-lg font-bold text-white">{data.nodes.length}</div>
+          {/* FIX MED-002 Cortez77: Guardia para data.nodes opcional */}
+          <div className="text-lg font-bold text-white">{data.nodes?.length ?? 0}</div>
           <div className="text-xs text-gray-400">Nodos procesados</div>
         </div>
         <div className="glass rounded-xl p-4 text-center">
@@ -161,7 +162,13 @@ function TraceNodeCard({ node, isLast }: { node: TraceabilityNode; isLast: boole
         className="border rounded-xl p-4 cursor-pointer transition-all hover:border-purple-500/50"
         style={{ borderColor: `${config.color}40`, backgroundColor: `${config.color}08` }}
         onClick={() => setExpanded(!expanded)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setExpanded(!expanded)}
+        onKeyDown={(e) => {
+          // FIX LOW-002 Cortez77: preventDefault para evitar scroll en espacio
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded(!expanded);
+          }
+        }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

@@ -449,17 +449,20 @@ class ExerciseSeeder:
             return 1
 
 
-def main():
-    """Main entry point"""
-    import argparse
+def main(dry_run: bool = False):
+    """Main entry point
 
-    parser = argparse.ArgumentParser(description="Seed exercise database from JSON files")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without committing")
-    args = parser.parse_args()
-
-    seeder = ExerciseSeeder(dry_run=args.dry_run)
+    Args:
+        dry_run: If True, preview changes without committing.
+                 Can be passed directly or via --dry-run CLI argument.
+    """
+    seeder = ExerciseSeeder(dry_run=dry_run)
     seeder.run()
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Seed exercise database from JSON files")
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without committing")
+    args = parser.parse_args()
+    main(dry_run=args.dry_run)

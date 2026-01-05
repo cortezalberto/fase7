@@ -310,7 +310,9 @@ export function GitAnalytics() {
             <h2>📈 Tendencias de Commits</h2>
             <div className="trends-chart">
               {data.trends.map((trend) => {
-                const maxCommits = Math.max(...data.trends.map((t) => t.commits));
+                // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                const commits = data.trends.map((t) => t.commits);
+                const maxCommits = commits.length > 0 ? Math.max(...commits, 1) : 1;
                 const height = (trend.commits / maxCommits) * 100;
 
                 {/* FIX Cortez48: Use date as key instead of index */}

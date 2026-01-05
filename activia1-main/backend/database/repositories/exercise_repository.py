@@ -38,27 +38,28 @@ class ExerciseRepository:
     def get_all(self, active_only: bool = True, include_deleted: bool = False) -> List[ExerciseDB]:
         """Get all exercises."""
         query = self.db.query(ExerciseDB)
+        # FIX Cortez85 HIGH-ORM-002: Use .is_(True) for boolean comparisons
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         if not include_deleted:
-            query = query.filter(ExerciseDB.deleted_at == None)
+            query = query.filter(ExerciseDB.deleted_at.is_(None))
         return query.order_by(ExerciseDB.unit, ExerciseDB.title).all()
 
     def get_by_id(self, exercise_id: str, include_deleted: bool = False) -> Optional[ExerciseDB]:
         """Get exercise by ID."""
         query = self.db.query(ExerciseDB).filter(ExerciseDB.id == exercise_id)
         if not include_deleted:
-            query = query.filter(ExerciseDB.deleted_at == None)
+            query = query.filter(ExerciseDB.deleted_at.is_(None))
         return query.first()
 
     def get_by_subject(self, subject_code: str, active_only: bool = True) -> List[ExerciseDB]:
         """Get exercises by subject."""
         query = self.db.query(ExerciseDB).filter(
             ExerciseDB.subject_code == subject_code,
-            ExerciseDB.deleted_at == None
+            ExerciseDB.deleted_at.is_(None)
         )
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         return query.order_by(ExerciseDB.unit, ExerciseDB.title).all()
 
     def get_by_unit(self, subject_code: str, unit: int, active_only: bool = True) -> List[ExerciseDB]:
@@ -66,10 +67,10 @@ class ExerciseRepository:
         query = self.db.query(ExerciseDB).filter(
             ExerciseDB.subject_code == subject_code,
             ExerciseDB.unit == unit,
-            ExerciseDB.deleted_at == None
+            ExerciseDB.deleted_at.is_(None)
         )
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         return query.order_by(ExerciseDB.title).all()
 
     def get_by_language_and_unit(
@@ -91,10 +92,10 @@ class ExerciseRepository:
         query = self.db.query(ExerciseDB).filter(
             ExerciseDB.language == language.lower(),
             ExerciseDB.unit == unit_number,
-            ExerciseDB.deleted_at == None
+            ExerciseDB.deleted_at.is_(None)
         )
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         return query.order_by(ExerciseDB.title).all()
 
     def get_by_language(self, language: str, active_only: bool = True) -> List[ExerciseDB]:
@@ -110,10 +111,10 @@ class ExerciseRepository:
         """
         query = self.db.query(ExerciseDB).filter(
             ExerciseDB.language == language.lower(),
-            ExerciseDB.deleted_at == None
+            ExerciseDB.deleted_at.is_(None)
         )
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         return query.order_by(ExerciseDB.unit, ExerciseDB.title).all()
 
     def get_languages_with_units(self) -> List[dict]:
@@ -135,9 +136,9 @@ class ExerciseRepository:
                 func.count(ExerciseDB.id).label('exercise_count')
             )
             .filter(
-                ExerciseDB.deleted_at == None,
-                ExerciseDB.is_active == True,
-                ExerciseDB.unit != None
+                ExerciseDB.deleted_at.is_(None),
+                ExerciseDB.is_active.is_(True),
+                ExerciseDB.unit.isnot(None)
             )
             .group_by(ExerciseDB.language)
             .all()
@@ -159,7 +160,7 @@ class ExerciseRepository:
             .options(selectinload(ExerciseDB.hints))
             .filter(
                 ExerciseDB.id == exercise_id,
-                ExerciseDB.deleted_at == None
+                ExerciseDB.deleted_at.is_(None)
             )
             .first()
         )
@@ -171,7 +172,7 @@ class ExerciseRepository:
             .options(selectinload(ExerciseDB.tests))
             .filter(
                 ExerciseDB.id == exercise_id,
-                ExerciseDB.deleted_at == None
+                ExerciseDB.deleted_at.is_(None)
             )
             .first()
         )
@@ -187,21 +188,24 @@ class ExerciseRepository:
             )
             .filter(
                 ExerciseDB.id == exercise_id,
-                ExerciseDB.deleted_at == None
+                ExerciseDB.deleted_at.is_(None)
             )
             .first()
         )
 
     def search(self, query_text: str, active_only: bool = True) -> List[ExerciseDB]:
         """Search exercises by title/description (case-insensitive)."""
-        search_pattern = f"%{query_text}%"
+        # FIX Cortez83: Sanitize LIKE pattern to prevent injection
+        # Escape special LIKE characters before wrapping with %
+        safe_text = query_text.replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f"%{safe_text}%"
         query = self.db.query(ExerciseDB).filter(
-            (ExerciseDB.title.ilike(search_pattern)) |
-            (ExerciseDB.description.ilike(search_pattern)),
-            ExerciseDB.deleted_at == None
+            (ExerciseDB.title.ilike(search_pattern, escape="\\")) |
+            (ExerciseDB.description.ilike(search_pattern, escape="\\")),
+            ExerciseDB.deleted_at.is_(None)
         )
         if active_only:
-            query = query.filter(ExerciseDB.is_active == True)
+            query = query.filter(ExerciseDB.is_active.is_(True))
         return query.all()
 
     def create(self, exercise: ExerciseDB) -> ExerciseDB:
@@ -442,7 +446,7 @@ class ExerciseTestRepository:
             self.db.query(ExerciseTestDB)
             .filter(
                 ExerciseTestDB.exercise_id == exercise_id,
-                ExerciseTestDB.is_hidden == False
+                ExerciseTestDB.is_hidden.is_(False)
             )
             .order_by(ExerciseTestDB.test_number)
             .all()
@@ -454,7 +458,7 @@ class ExerciseTestRepository:
             self.db.query(ExerciseTestDB)
             .filter(
                 ExerciseTestDB.exercise_id == exercise_id,
-                ExerciseTestDB.is_hidden == True
+                ExerciseTestDB.is_hidden.is_(True)
             )
             .order_by(ExerciseTestDB.test_number)
             .all()

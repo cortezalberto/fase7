@@ -39,7 +39,8 @@ def init_db():
     """Create all tables"""
     logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
-    logger.info("✓ Tables created successfully!")
+    # FIX Cortez76: Removed emoji to avoid cp1252 encoding error on Windows
+    logger.info("Tables created successfully!")
 
 
 def seed_exercises_if_empty():
@@ -76,13 +77,14 @@ def seed_exercises_if_empty():
             db.close()
 
         # Base de datos vacía, ejecutar seed
-        logger.info("🚀 Running seed_exercises script...")
+        # FIX Cortez76: Removed emoji to avoid cp1252 encoding error on Windows
+        logger.info("Running seed_exercises script...")
 
         from backend.scripts.seed_exercises import main as seed_exercises_main
 
         seed_exercises_main()
 
-        logger.info("✅ Seed completed successfully")
+        logger.info("Seed completed successfully")
 
         # Verificar resultados
         db = SessionLocal()
@@ -91,9 +93,9 @@ def seed_exercises_if_empty():
             exercise_count = db.query(ExerciseDB).count()
 
             logger.info("=" * 80)
-            logger.info("📊 SEED RESULTS:")
-            logger.info(f"   ✅ Subjects: {subject_count}")
-            logger.info(f"   ✅ Exercises: {exercise_count}")
+            logger.info("SEED RESULTS:")
+            logger.info("   Subjects: %d", subject_count)
+            logger.info("   Exercises: %d", exercise_count)
             logger.info("=" * 80)
 
         finally:
@@ -102,7 +104,7 @@ def seed_exercises_if_empty():
         return True
 
     except Exception as e:
-        logger.error(f"❌ Error during seed: {e}", exc_info=True)
+        logger.error("Error during seed: %s", e, exc_info=True)
         return False
 
 
@@ -114,8 +116,9 @@ if __name__ == "__main__":
     success = seed_exercises_if_empty()
 
     if not success:
-        logger.error("❌ Database initialization FAILED")
+        # FIX Cortez76: Removed emoji to avoid cp1252 encoding error on Windows
+        logger.error("Database initialization FAILED")
         sys.exit(1)
 
-    logger.info("✅ Database initialization SUCCESSFUL")
+    logger.info("Database initialization SUCCESSFUL")
     sys.exit(0)

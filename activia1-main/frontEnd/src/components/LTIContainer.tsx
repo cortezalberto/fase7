@@ -2,6 +2,7 @@
  * LTI Container Component
  *
  * HU-SYS-010: Integracion con Moodle via LTI 1.3
+ * Cortez86: Extracted context and hook to separate files for fast-refresh compatibility
  *
  * This component wraps the application when running in LTI mode (embedded in Moodle).
  * It provides:
@@ -20,47 +21,14 @@
  *
  * Or use the hook directly:
  * ```tsx
+ * import { useLTIContext } from '../hooks/useLTIContext';
  * const { isLTI, context, isLoading } = useLTIContext();
  * ```
  */
 
-import { ReactNode, useEffect, useState, createContext, use } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { ltiService, LTIContext } from '../services/api/lti.service';
-
-// =============================================================================
-// Context
-// =============================================================================
-
-interface LTIContextValue {
-  isLTI: boolean;
-  isEmbedded: boolean;
-  context: LTIContext | null;
-  isLoading: boolean;
-  error: string | null;
-}
-
-const LTIReactContext = createContext<LTIContextValue | null>(null);
-
-/**
- * Hook to access LTI context from anywhere in the app.
- *
- * @returns LTI context value
- * @throws Error if used outside LTIContainer
- */
-export function useLTIContext(): LTIContextValue {
-  const context = use(LTIReactContext);
-  if (context === null) {
-    // Return safe defaults when not in LTI mode
-    return {
-      isLTI: false,
-      isEmbedded: false,
-      context: null,
-      isLoading: false,
-      error: null,
-    };
-  }
-  return context;
-}
+import { LTIReactContext, type LTIContextValue } from '../contexts/LTIContext';
 
 // =============================================================================
 // Props

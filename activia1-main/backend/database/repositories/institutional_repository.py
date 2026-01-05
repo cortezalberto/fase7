@@ -2,6 +2,7 @@
 Institutional Repositories - Course reports, remediation plans, and risk alerts.
 
 Cortez46: Extracted from repositories.py (5,134 lines)
+FIX Cortez83: Added try/except with rollback for database operations
 
 SPRINT 5:
 - HU-DOC-009: Reportes Institucionales
@@ -14,6 +15,7 @@ import logging
 
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.constants import utc_now
 from ..models import CourseReportDB, RemediationPlanDB, RiskAlertDB
@@ -85,9 +87,15 @@ class CourseReportRepository(BaseRepository):
             format=format,
             file_path=file_path,
         )
-        self.db.add(report)
-        self.db.commit()
-        self.db.refresh(report)
+        # FIX Cortez83: Added try/except with rollback
+        try:
+            self.db.add(report)
+            self.db.commit()
+            self.db.refresh(report)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create course report: %s", str(e), exc_info=True)
+            raise
 
         logger.info(
             "Course report created: %s for course %s",
@@ -205,9 +213,15 @@ class RemediationPlanRepository(BaseRepository):
             recommended_actions=recommended_actions or [],
             status="pending",
         )
-        self.db.add(plan)
-        self.db.commit()
-        self.db.refresh(plan)
+        # FIX Cortez83: Added try/except with rollback
+        try:
+            self.db.add(plan)
+            self.db.commit()
+            self.db.refresh(plan)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create remediation plan: %s", str(e), exc_info=True)
+            raise
 
         logger.info(
             "Remediation plan created: %s for student %s",
@@ -380,9 +394,15 @@ class RiskAlertRepository(BaseRepository):
             actual_value=actual_value,
             status="open",
         )
-        self.db.add(alert)
-        self.db.commit()
-        self.db.refresh(alert)
+        # FIX Cortez83: Added try/except with rollback
+        try:
+            self.db.add(alert)
+            self.db.commit()
+            self.db.refresh(alert)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create risk alert: %s", str(e), exc_info=True)
+            raise
 
         logger.warning(
             "Risk alert created: %s (%s)",

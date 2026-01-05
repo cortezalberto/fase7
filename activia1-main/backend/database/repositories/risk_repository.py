@@ -59,8 +59,15 @@ class RiskRepository:
             resolution_notes=risk.resolution_notes,
             detected_by=risk.detected_by,
         )
-        self.db.add(db_risk)
-        self.db.flush()
+        # FIX Cortez84 HIGH-REPO-001: Use commit instead of flush for persistence
+        try:
+            self.db.add(db_risk)
+            self.db.commit()
+            self.db.refresh(db_risk)
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to create risk: %s", str(e), exc_info=True)
+            raise
         return db_risk
 
     def get_by_id(self, risk_id: str) -> Optional[RiskDB]:
@@ -88,8 +95,9 @@ class RiskRepository:
         """
         query = self.db.query(RiskDB).filter(RiskDB.session_id == session_id)
 
+        # FIX Cortez85 HIGH-ORM-002: Use .is_() for boolean comparisons
         if resolved is not None:
-            query = query.filter(RiskDB.resolved == resolved)
+            query = query.filter(RiskDB.resolved.is_(resolved))
 
         return query.order_by(desc(RiskDB.created_at)).limit(limit).offset(offset).all()
 
@@ -117,28 +125,34 @@ class RiskRepository:
             .options(joinedload(RiskDB.session))
 
         if resolved is not None:
-            query = query.filter(RiskDB.resolved == resolved)
+            query = query.filter(RiskDB.resolved.is_(resolved))
 
         return query.order_by(desc(RiskDB.created_at)).limit(limit).offset(offset).all()
 
     def get_critical_risks(
         self,
         student_id: Optional[str] = None,
-        load_session_relations: bool = False
+        load_session_relations: bool = False,
+        limit: int = 100,
+        offset: int = 0
     ) -> List[RiskDB]:
         """
-        Get all critical unresolved risks with eager loading.
+        Get critical unresolved risks with eager loading and pagination.
+
+        FIX Cortez84 CRIT-REPO-004: Added pagination to prevent memory exhaustion.
 
         Args:
             student_id: Optional student filter
             load_session_relations: If True, preload traces and evaluations
+            limit: Maximum records to return (default 100)
+            offset: Records to skip (default 0)
 
         Returns:
             List of critical risks with relations preloaded
         """
         query = self.db.query(RiskDB)\
             .filter(RiskDB.risk_level == "critical")\
-            .filter(RiskDB.resolved == False)
+            .filter(RiskDB.resolved.is_(False))
 
         if student_id:
             query = query.filter(RiskDB.student_id == student_id)
@@ -151,7 +165,7 @@ class RiskRepository:
         else:
             query = query.options(joinedload(RiskDB.session))
 
-        return query.order_by(desc(RiskDB.created_at)).all()
+        return query.order_by(desc(RiskDB.created_at)).limit(limit).offset(offset).all()
 
     def resolve_risk(self, risk_id: str, resolution_notes: str) -> bool:
         """
@@ -229,7 +243,7 @@ class RiskRepository:
         """
         query = self.db.query(RiskDB).filter(RiskDB.session_id == session_id)
         if not include_resolved:
-            query = query.filter(RiskDB.resolved == False)
+            query = query.filter(RiskDB.resolved.is_(False))
         return query.count()
 
     def count_by_level(self, session_id: str, level: str) -> int:
@@ -344,7 +358,7 @@ class RiskRepository:
         query = self.db.query(RiskDB).filter(RiskDB.activity_id == activity_id)
 
         if resolved is not None:
-            query = query.filter(RiskDB.resolved == resolved)
+            query = query.filter(RiskDB.resolved.is_(resolved))
 
         return query.order_by(desc(RiskDB.created_at)).limit(limit).offset(offset).all()
 
@@ -370,6 +384,6 @@ class RiskRepository:
         query = self.db.query(RiskDB).filter(RiskDB.dimension == dimension.lower())
 
         if resolved is not None:
-            query = query.filter(RiskDB.resolved == resolved)
+            query = query.filter(RiskDB.resolved.is_(resolved))
 
         return query.order_by(desc(RiskDB.created_at)).limit(limit).offset(offset).all()

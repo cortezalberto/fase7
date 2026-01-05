@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request  # Cortez58: Removed unused HTTPException, status
+from fastapi import APIRouter, Depends, Request, Query  # Cortez58: Removed unused HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 # FIX Cortez36: Import custom exception for consistent error handling
 from backend.api.exceptions import ExerciseNotFoundError, DatabaseOperationError
@@ -28,6 +28,8 @@ from backend.services.code_evaluator import CodeEvaluator
 from backend.api.deps import get_llm_provider
 from backend.llm.base import LLMMessage, LLMRole
 from backend.core.security import decode_access_token
+# FIX Cortez73 (MED-001): Add pagination constants
+from backend.api.config import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from backend.api.schemas.exercises import (
     ExerciseJSONSchema,
     ExerciseListItemSchema,
@@ -214,6 +216,9 @@ async def list_json_exercises(
     tag: Optional[str] = None,
     language: Optional[str] = None,
     framework: Optional[str] = None,
+    # FIX Cortez73 (MED-001): Add pagination parameters
+    page: int = Query(1, ge=MIN_PAGE_SIZE, description="Número de página"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE, description="Elementos por página"),
     current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -226,8 +231,11 @@ async def list_json_exercises(
     - tag: filtrar por tag específico
     - language: 'python', 'java'
     - framework: 'spring-boot'
+    - page: Número de página (default: 1)
+    - page_size: Elementos por página (default: 20, max: 100)
 
     FIX Cortez51: Added optional authentication to check completed exercises
+    FIX Cortez73 (MED-001): Added pagination support
     """
     # Usar el método search mejorado del loader
     unit_num = None
@@ -249,12 +257,17 @@ async def list_json_exercises(
         framework=framework
     )
 
+    # FIX Cortez73 (MED-001): Apply pagination to results
+    total_items = len(exercises)
+    offset = (page - 1) * page_size
+    paginated_exercises = exercises[offset:offset + page_size]
+
     # FIX Cortez51: Get completed exercise IDs for current user
     completed_ids = get_completed_exercise_ids(current_user, db)
 
     # Convertir a schema de listado
     result = []
-    for ex in exercises:
+    for ex in paginated_exercises:
         result.append(ExerciseListItemSchema(
             id=ex['id'],
             title=ex['meta']['title'],
@@ -614,8 +627,9 @@ async def submit_code(
     )
     
     # Guardar submission con el usuario autenticado
+    # FIX Cortez84 CRIT-API-003: current_user is dict, use .get() not .id
     new_submission = UserExerciseSubmission(
-        user_id=current_user.id,
+        user_id=current_user.get("user_id"),
         exercise_id=exercise.id,
         submitted_code=submission.code,
         passed_tests=passed_tests,
@@ -662,8 +676,10 @@ async def get_user_submissions(
     current_user: dict = Depends(get_current_user)  # FIX Cortez69 HIGH-API-002
 ):
     """Obtiene todas las submissions del usuario actual"""
+    # FIX Cortez84 CRIT-API-003: current_user is dict, use .get() not .id
+    user_id = current_user.get("user_id")
     submissions = db.query(UserExerciseSubmission).filter(
-        UserExerciseSubmission.user_id == current_user.id
+        UserExerciseSubmission.user_id == user_id
     ).order_by(UserExerciseSubmission.submitted_at.desc()).all()
     
     return {

@@ -13,7 +13,7 @@ from uuid import uuid4
 import logging
 
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, text, exists
+from sqlalchemy import desc, text, exists, select
 
 from ..models import UserDB
 from backend.core.constants import utc_now
@@ -70,14 +70,16 @@ class UserRepository:
             self.db.commit()
             self.db.refresh(user)
 
+            # FIX Cortez84 HIGH-ERR-002: Remove PII (email) from logs
             logger.info(
                 "User created successfully",
-                extra={"user_id": user.id, "email": user.email, "roles": user.roles},
+                extra={"user_id": user.id, "roles": user.roles},
             )
             return user
         except Exception as e:
             self.db.rollback()
-            logger.error("Failed to create user: %s", e, extra={"email": email}, exc_info=True)
+            # FIX Cortez84 HIGH-ERR-002: Remove email from error logs
+            logger.error("Failed to create user: %s", e, exc_info=True)
             raise
 
     def get_by_id(self, user_id: str) -> Optional[UserDB]:
@@ -161,11 +163,14 @@ class UserRepository:
                 .all()
             )
         elif dialect_name == "sqlite":
+            # FIX Cortez83: Sanitize role to prevent LIKE pattern injection
+            # Escape special LIKE characters and wrap in quotes
+            safe_role = role.replace("%", "\\%").replace("_", "\\_").replace('"', '\\"')
             return (
                 self.db.query(UserDB)
                 .filter(UserDB.is_active == True)
-                .filter(text("roles LIKE :pattern"))
-                .params(pattern=f'%"{role}"%')
+                .filter(text("roles LIKE :pattern ESCAPE '\\'"))
+                .params(pattern=f'%"{safe_role}"%')
                 .all()
             )
         else:
@@ -176,6 +181,8 @@ class UserRepository:
         """
         Update user password.
 
+        FIX Cortez75 HIGH-REPO-002: Added SELECT FOR UPDATE to prevent race conditions.
+
         Args:
             user_id: User ID
             new_hashed_password: New bcrypt hashed password
@@ -183,17 +190,25 @@ class UserRepository:
         Returns:
             Updated UserDB if found, None otherwise
         """
-        user = self.get_by_id(user_id)
-        if not user:
-            return None
+        try:
+            # FIX Cortez75 HIGH-REPO-002: Use pessimistic locking
+            stmt = select(UserDB).where(UserDB.id == user_id).with_for_update()
+            user = self.db.execute(stmt).scalar_one_or_none()
 
-        user.hashed_password = new_hashed_password
-        user.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(user)
+            if not user:
+                return None
 
-        logger.info("User password updated", extra={"user_id": user.id})
-        return user
+            user.hashed_password = new_hashed_password
+            user.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(user)
+
+            logger.info("User password updated", extra={"user_id": user.id})
+            return user
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to update password for user %s: %s", user_id, e, exc_info=True)
+            raise
 
     def update_profile(
         self,
@@ -204,6 +219,8 @@ class UserRepository:
         """
         Update user profile.
 
+        FIX Cortez75 HIGH-REPO-002: Added SELECT FOR UPDATE to prevent race conditions.
+
         Args:
             user_id: User ID
             full_name: New full name (optional)
@@ -212,25 +229,35 @@ class UserRepository:
         Returns:
             Updated UserDB if found, None otherwise
         """
-        user = self.get_by_id(user_id)
-        if not user:
-            return None
+        try:
+            # FIX Cortez75 HIGH-REPO-002: Use pessimistic locking
+            stmt = select(UserDB).where(UserDB.id == user_id).with_for_update()
+            user = self.db.execute(stmt).scalar_one_or_none()
 
-        if full_name is not None:
-            user.full_name = full_name
-        if student_id is not None:
-            user.student_id = student_id
+            if not user:
+                return None
 
-        user.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(user)
+            if full_name is not None:
+                user.full_name = full_name
+            if student_id is not None:
+                user.student_id = student_id
 
-        logger.info("User profile updated", extra={"user_id": user.id})
-        return user
+            user.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(user)
+
+            logger.info("User profile updated", extra={"user_id": user.id})
+            return user
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to update profile for user %s: %s", user_id, e, exc_info=True)
+            raise
 
     def add_role(self, user_id: str, role: str) -> Optional[UserDB]:
         """
         Add role to user.
+
+        FIX Cortez75 HIGH-REPO-002: Added SELECT FOR UPDATE to prevent race conditions.
 
         Args:
             user_id: User ID
@@ -239,25 +266,35 @@ class UserRepository:
         Returns:
             Updated UserDB if found, None otherwise
         """
-        user = self.get_by_id(user_id)
-        if not user:
-            return None
+        try:
+            # FIX Cortez75 HIGH-REPO-002: Use pessimistic locking
+            stmt = select(UserDB).where(UserDB.id == user_id).with_for_update()
+            user = self.db.execute(stmt).scalar_one_or_none()
 
-        if role not in user.roles:
-            user.roles = user.roles + [role]
-            user.updated_at = utc_now()
-            self.db.commit()
-            self.db.refresh(user)
+            if not user:
+                return None
 
-            logger.info(
-                "Role added to user", extra={"user_id": user.id, "role": role}
-            )
+            if role not in user.roles:
+                user.roles = user.roles + [role]
+                user.updated_at = utc_now()
+                self.db.commit()
+                self.db.refresh(user)
 
-        return user
+                logger.info(
+                    "Role added to user", extra={"user_id": user.id, "role": role}
+                )
+
+            return user
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to add role to user %s: %s", user_id, e, exc_info=True)
+            raise
 
     def delete_role(self, user_id: str, role: str) -> Optional[UserDB]:
         """
         Delete role from user.
+
+        FIX Cortez75 HIGH-REPO-002: Added SELECT FOR UPDATE to prevent race conditions.
 
         Args:
             user_id: User ID
@@ -266,21 +303,29 @@ class UserRepository:
         Returns:
             Updated UserDB if found, None otherwise
         """
-        user = self.get_by_id(user_id)
-        if not user:
-            return None
+        try:
+            # FIX Cortez75 HIGH-REPO-002: Use pessimistic locking
+            stmt = select(UserDB).where(UserDB.id == user_id).with_for_update()
+            user = self.db.execute(stmt).scalar_one_or_none()
 
-        if role in user.roles:
-            user.roles = [r for r in user.roles if r != role]
-            user.updated_at = utc_now()
-            self.db.commit()
-            self.db.refresh(user)
+            if not user:
+                return None
 
-            logger.info(
-                "Role removed from user", extra={"user_id": user.id, "role": role}
-            )
+            if role in user.roles:
+                user.roles = [r for r in user.roles if r != role]
+                user.updated_at = utc_now()
+                self.db.commit()
+                self.db.refresh(user)
 
-        return user
+                logger.info(
+                    "Role removed from user", extra={"user_id": user.id, "role": role}
+                )
+
+            return user
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to delete role from user %s: %s", user_id, e, exc_info=True)
+            raise
 
     def update_last_login(self, user_id: str) -> Optional[UserDB]:
         """
@@ -446,6 +491,7 @@ class UserRepository:
         Update user academic context (course and commission).
 
         Cortez65.2: For testing phase without LTI/Moodle integration.
+        FIX Cortez75 HIGH-REPO-002: Added SELECT FOR UPDATE to prevent race conditions.
 
         Args:
             user_id: User ID
@@ -455,24 +501,32 @@ class UserRepository:
         Returns:
             Updated UserDB if found, None otherwise
         """
-        user = self.get_by_id(user_id)
-        if not user:
-            return None
+        try:
+            # FIX Cortez75 HIGH-REPO-002: Use pessimistic locking
+            stmt = select(UserDB).where(UserDB.id == user_id).with_for_update()
+            user = self.db.execute(stmt).scalar_one_or_none()
 
-        if course_name is not None:
-            user.course_name = course_name
-        if commission is not None:
-            user.commission = commission
+            if not user:
+                return None
 
-        user.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(user)
+            if course_name is not None:
+                user.course_name = course_name
+            if commission is not None:
+                user.commission = commission
 
-        logger.info(
-            "User academic context updated",
-            extra={"user_id": user.id, "course_name": course_name, "commission": commission},
-        )
-        return user
+            user.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(user)
+
+            logger.info(
+                "User academic context updated",
+                extra={"user_id": user.id, "course_name": course_name, "commission": commission},
+            )
+            return user
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to update academic context for user %s: %s", user_id, e, exc_info=True)
+            raise
 
     def get_by_commission(self, commission: str) -> List[UserDB]:
         """

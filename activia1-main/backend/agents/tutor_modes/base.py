@@ -9,9 +9,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from enum import Enum
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+
+# FIX Cortez73 (HIGH-003): LLM call timeout in seconds
+LLM_TIMEOUT_SECONDS = 30.0
 
 
 class TutorMode(str, Enum):
@@ -142,6 +146,9 @@ class TutorModeStrategy(ABC):
 
         Returns:
             LLM response content or None if unavailable/failed
+
+        Note:
+            FIX Cortez73 (HIGH-003): Added 30s timeout to prevent indefinite hangs
         """
         if not context.llm_provider:
             logger.debug("No LLM provider available for %s mode", self.mode.value)
@@ -155,10 +162,14 @@ class TutorModeStrategy(ABC):
                 LLMMessage(role=LLMRole.USER, content=f"Estudiante pregunta: {context.student_prompt}")
             ]
 
-            llm_response = await context.llm_provider.generate(
-                messages,
-                temperature=0.7,
-                max_tokens=500
+            # FIX Cortez73 (HIGH-003): Add timeout to prevent indefinite hangs
+            llm_response = await asyncio.wait_for(
+                context.llm_provider.generate(
+                    messages,
+                    temperature=0.7,
+                    max_tokens=500
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
 
             response_text = (
@@ -173,6 +184,11 @@ class TutorModeStrategy(ABC):
             )
             return response_text
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                "LLM call timed out after %ss in %s mode",
+                LLM_TIMEOUT_SECONDS, self.mode.value
+            )
         except AttributeError as e:
             logger.error(
                 "LLM attribute error in %s mode: %s: %s",

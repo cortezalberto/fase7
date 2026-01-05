@@ -55,17 +55,26 @@ class SessionRepository:
 
         Returns:
             Created SessionDB instance
+
+        Raises:
+            SQLAlchemyError: If database operation fails
         """
-        session = SessionDB(
-            id=str(uuid4()),
-            student_id=student_id,
-            activity_id=activity_id,
-            mode=mode,
-            simulator_type=simulator_type,
-        )
-        self.db.add(session)
-        self.db.flush()
-        return session
+        try:
+            session = SessionDB(
+                id=str(uuid4()),
+                student_id=student_id,
+                activity_id=activity_id,
+                mode=mode,
+                simulator_type=simulator_type,
+            )
+            self.db.add(session)
+            self.db.commit()
+            self.db.refresh(session)
+            return session
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create session: %s", str(e), exc_info=True)
+            raise
 
     def get_by_id(self, session_id: str, load_relations: bool = False) -> Optional[SessionDB]:
         """
@@ -353,6 +362,46 @@ class SessionRepository:
         return (
             self.db.query(SessionDB)
             .filter(SessionDB.activity_id == activity_id)
+            .count()
+        )
+
+    def get_by_course(
+        self,
+        course_id: str,
+        load_relations: bool = False,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[SessionDB]:
+        """
+        Get all sessions for a course with optional eager loading.
+
+        FIX Cortez82: Added for filtering by course/subject.
+
+        Args:
+            course_id: Course/subject identifier
+            load_relations: If True, loads traces and risks to prevent N+1 queries
+            limit: Maximum records to return (default 100)
+            offset: Records to skip (default 0)
+
+        Returns:
+            List of SessionDB instances
+        """
+        query = self.db.query(SessionDB).filter(SessionDB.course_id == course_id)
+
+        if load_relations:
+            query = query.options(
+                selectinload(SessionDB.traces),
+                selectinload(SessionDB.risks),
+                selectinload(SessionDB.evaluations)
+            )
+
+        return query.order_by(desc(SessionDB.created_at)).limit(limit).offset(offset).all()
+
+    def count_by_course(self, course_id: str) -> int:
+        """Count sessions for a course. FIX Cortez82."""
+        return (
+            self.db.query(SessionDB)
+            .filter(SessionDB.course_id == course_id)
             .count()
         )
 

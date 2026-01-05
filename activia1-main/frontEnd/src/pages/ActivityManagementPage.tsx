@@ -633,7 +633,7 @@ export default function ActivityManagementPage() {
                     <input
                       type="number"
                       value={formData.estimated_duration_minutes}
-                      onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value, 10) })}
                       min={5}
                       max={480}
                       className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
@@ -911,7 +911,7 @@ export default function ActivityManagementPage() {
                     <input
                       type="number"
                       value={formData.estimated_duration_minutes}
-                      onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value) })}
+                      onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: parseInt(e.target.value, 10) })}
                       min={5}
                       max={480}
                       className="w-full px-4 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"

@@ -45,7 +45,7 @@ from jose.constants import ALGORITHMS
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.orm import Session
 
-from backend.api.config import SECRET_KEY
+from backend.api.config import SECRET_KEY, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, MIN_PAGE_SIZE
 from backend.api.deps import get_db, get_current_user, require_role
 from backend.api.exceptions import (
     AuthenticationError,
@@ -817,6 +817,9 @@ async def create_deployment(
 
 @router.get("/deployments", response_model=List[LTIDeploymentResponse])
 async def list_deployments(
+    # FIX Cortez73 (MED-001): Add pagination parameters
+    page: int = Query(1, ge=MIN_PAGE_SIZE, description="Número de página"),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE, description="Elementos por página"),
     db: Session = Depends(get_db),
     # FIX Cortez68 (CRIT-003): Add teacher/admin authentication
     current_user: dict = Depends(require_role("teacher")),
@@ -824,13 +827,19 @@ async def list_deployments(
     """
     List all LTI deployments.
 
-    Returns both active and inactive deployments.
+    Returns both active and inactive deployments with pagination.
     Requires teacher role.
+
+    FIX Cortez73 (MED-001): Added pagination support
     """
     lti_deployment_repo = LTIDeploymentRepository(db)
     deployments = lti_deployment_repo.get_active_deployments()
 
-    return [LTIDeploymentResponse.model_validate(d) for d in deployments]
+    # FIX Cortez73 (MED-001): Apply pagination
+    offset = (page - 1) * page_size
+    paginated_deployments = deployments[offset:offset + page_size]
+
+    return [LTIDeploymentResponse.model_validate(d) for d in paginated_deployments]
 
 
 @router.delete("/deployments/{deployment_id}")

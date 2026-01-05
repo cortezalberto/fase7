@@ -303,7 +303,9 @@ export function StudentTraceabilityViewer({
               {Object.entries(traceability.summary.cognitive_states_distribution)
                 .sort((a, b) => b[1] - a[1])
                 .map(([state, count]) => {
-                  const maxCount = Math.max(...Object.values(traceability.summary.cognitive_states_distribution));
+                  // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                  const values = Object.values(traceability.summary.cognitive_states_distribution);
+                  const maxCount = values.length > 0 ? Math.max(...values, 1) : 1;
                   const percentage = (count / maxCount) * 100;
                   const cogState = state as CognitiveState;
 
@@ -513,7 +515,9 @@ export function StudentTraceabilityViewer({
                 {Object.entries(cognitivePath.time_in_states)
                   .sort((a, b) => b[1] - a[1])
                   .map(([state, minutes]) => {
-                    const maxMinutes = Math.max(...Object.values(cognitivePath.time_in_states));
+                    // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                    const timeValues = Object.values(cognitivePath.time_in_states);
+                    const maxMinutes = timeValues.length > 0 ? Math.max(...timeValues, 1) : 1;
                     const percentage = (minutes / maxMinutes) * 100;
                     const cogState = state as CognitiveState;
 

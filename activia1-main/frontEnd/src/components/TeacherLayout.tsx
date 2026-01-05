@@ -23,6 +23,8 @@ import {
   Shield,
   BookOpen,
   Home,
+  Library,
+  Book,
 } from 'lucide-react';
 
 // Teacher navigation items - matching the Quick Actions in TeacherDashboardPage
@@ -56,6 +58,18 @@ const teacherNavItems = [
     label: 'Actividades',
     description: 'Gestionar actividades y ejercicios',
     icon: BookOpen,
+  },
+  {
+    path: '/teacher/content',
+    label: 'Contenido Academico',
+    description: 'Gestionar unidades y apuntes',
+    icon: Library,
+  },
+  {
+    path: '/teacher/materias',
+    label: 'Materias',
+    description: 'Gestionar materias/asignaturas',
+    icon: Book,
   },
 ];
 

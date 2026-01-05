@@ -108,7 +108,8 @@ export default function DashboardPage() {
     {
       title: 'Progreso General',
       // FIX 4.6: Calculate from real data instead of hardcoded mock
-      value: completedSessions > 0 ? `${Math.round((completedSessions / Math.max(sessions.length, 1)) * 100)}%` : '0%',
+      // FIX HIGH-005 Cortez77: Limitar porcentaje a 100% máximo
+      value: completedSessions > 0 ? `${Math.min(Math.round((completedSessions / Math.max(sessions.length, 1)) * 100), 100)}%` : '0%',
       change: `${sessions.length} sesiones`,
       changeType: sessions.length > 0 ? 'neutral' : 'neutral',
       icon: TrendingUp,

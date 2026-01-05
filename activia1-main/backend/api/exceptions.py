@@ -21,6 +21,18 @@ class AINativeAPIException(HTTPException):
         self.extra = extra or {}
 
 
+class NotFoundError(AINativeAPIException):
+    """Generic not found error for any resource"""
+
+    def __init__(self, resource_type: str, resource_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{resource_type} '{resource_id}' not found",
+            error_code="NOT_FOUND",
+            extra={"resource_type": resource_type, "resource_id": resource_id}
+        )
+
+
 class SessionNotFoundError(AINativeAPIException):
     """Sesión no encontrada"""
 
@@ -740,5 +752,58 @@ class RemediationPlanError(AINativeAPIException):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error {operation} remediation plan: {details}" if details else f"Error {operation} remediation plan",
             error_code="REMEDIATION_PLAN_ERROR",
+            extra={"operation": operation, "details": details}
+        )
+
+
+# =============================================================================
+# FIX Cortez73 (HIGH-004): File management exceptions
+# =============================================================================
+
+class FileNotFoundError(AINativeAPIException):
+    """Archivo no encontrado"""
+
+    def __init__(self, file_id: str = "", path: str = ""):
+        identifier = file_id or path or "unknown"
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File '{identifier}' not found",
+            error_code="FILE_NOT_FOUND",
+            extra={"file_id": file_id, "path": path}
+        )
+
+
+class FileUploadError(AINativeAPIException):
+    """Error al subir archivo"""
+
+    def __init__(self, details: str = ""):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File upload error: {details}" if details else "File upload error",
+            error_code="FILE_UPLOAD_ERROR",
+            extra={"details": details}
+        )
+
+
+class FileAccessDeniedError(AINativeAPIException):
+    """Acceso denegado al archivo"""
+
+    def __init__(self, path: str = ""):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to file",
+            error_code="FILE_ACCESS_DENIED",
+            extra={"path": path}
+        )
+
+
+class FileStorageError(AINativeAPIException):
+    """Error de almacenamiento de archivos"""
+
+    def __init__(self, operation: str, details: str = ""):
+        super().__init__(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"File storage error during {operation}: {details}" if details else f"File storage error during {operation}",
+            error_code="FILE_STORAGE_ERROR",
             extra={"operation": operation, "details": details}
         )

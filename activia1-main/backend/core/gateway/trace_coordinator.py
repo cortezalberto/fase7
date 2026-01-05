@@ -15,12 +15,11 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ...models.trace import CognitiveTrace, TraceSequence
-from ...models.enums import InteractionType, TraceLevel
+from ...models.trace import CognitiveTrace, TraceSequence, InteractionType, TraceLevel
 
 if TYPE_CHECKING:
     from .protocols import TraceRepositoryProtocol, SequenceRepositoryProtocol
-    from ...llm.interfaces import LLMMessage
+    from ...llm.base import LLMMessage
 
 logger = logging.getLogger(__name__)
 

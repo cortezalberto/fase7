@@ -22,6 +22,8 @@ def create_test_users():
     with get_db_session() as db:
         user_repo = UserRepository(db)
         # Usuarios de prueba
+        # FIX Cortez79: Updated credentials to match frontend LoginPage.tsx
+        # Frontend shows: student@activia.com / Student1234 and teacher@activia.com / Teacher1234
         test_users = [
             {
                 "email": "demo@activia.com",
@@ -31,9 +33,15 @@ def create_test_users():
             },
             {
                 "email": "student@activia.com",
-                "password": "student123",
+                "password": "Student1234",  # FIX: Match frontend credentials
                 "full_name": "Estudiante Prueba",
                 "role": UserRole.STUDENT,
+            },
+            {
+                "email": "teacher@activia.com",  # FIX: Add teacher user
+                "password": "Teacher1234",
+                "full_name": "Docente Prueba",
+                "role": UserRole.TEACHER,
             },
             {
                 "email": "tutor@activia.com",
@@ -74,11 +82,12 @@ def create_test_users():
             print(f"✅ Creado: {user_data['email']} ({user_data['role']}) - password: {user_data['password']}")
 
         print("\n" + "=" * 80)
-        print(f"✅ COMPLETADO: {created_count} usuarios creados")
+        print(f"COMPLETADO: {created_count} usuarios creados")
         print("=" * 80)
-        print("\n🔐 CREDENCIALES DE PRUEBA:")
+        print("\nCREDENCIALES DE PRUEBA:")
         print("   - demo@activia.com / demo123 (STUDENT)")
-        print("   - student@activia.com / student123 (STUDENT)")
+        print("   - student@activia.com / Student1234 (STUDENT)")
+        print("   - teacher@activia.com / Teacher1234 (TEACHER)")
         print("   - tutor@activia.com / tutor123 (TUTOR)")
         print("   - admin@activia.com / admin123 (ADMIN)")
         print()

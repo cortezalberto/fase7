@@ -409,3 +409,25 @@ export type {
 } from './evaluation.d';
 
 export { ACHIEVEMENTS_CATALOG } from './evaluation.d';
+
+// ============================================================================
+// ACADEMIC CONTENT TYPES (Cortez72, Cortez79)
+// ============================================================================
+export type {
+  RecursoExterno,
+  ApuntesCreate,
+  ApuntesUpdate,
+  ApuntesResponse,
+  UnidadCreate,
+  UnidadUpdate,
+  UnidadResponse,
+  UnidadConApuntes,
+  UnidadConEjercicios,
+  // Cortez79: Added MateriaCreate and MateriaUpdate for CRUD
+  MateriaCreate,
+  MateriaUpdate,
+  MateriaResponse,
+  MateriaConUnidades,
+  ArchivoAdjunto,
+  ArchivoUploadResponse,
+} from './domain/academic.types';

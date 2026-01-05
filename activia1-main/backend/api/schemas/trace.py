@@ -176,12 +176,18 @@ class TraceN4Response(BaseModel):
 
 
 # FIX 6.4 Cortez8: Schema para TraceSequenceDB
+# DEPRECATED Cortez75: Use TraceSequenceResponse from sprint5_6.py instead
+# This schema is kept for backward compatibility but sprint5_6.py is canonical
 class TraceSequenceResponse(BaseModel):
     """
     Response con información de una secuencia de trazas.
 
     FIX 6.4 Cortez8: Schema faltante para ORM TraceSequenceDB.
     Representa una secuencia de eventos cognitivos durante una sesión.
+
+    .. deprecated:: Cortez75
+        Use :class:`~backend.api.schemas.sprint5_6.TraceSequenceResponse` instead.
+        This class is maintained for backward compatibility only.
     """
 
     id: str = Field(..., description="ID de la secuencia")

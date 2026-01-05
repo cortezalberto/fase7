@@ -2,6 +2,7 @@
 Kubernetes Probes - Lightweight Health Checks
 
 Cortez66: Extracted from health.py
+FIX Cortez74: Added rate limiting to prevent abuse
 
 Endpoints:
 - GET /health: Basic health check with agent status
@@ -14,7 +15,7 @@ import time
 import os
 from typing import Dict, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -23,6 +24,7 @@ from backend.core.constants import utc_now
 from backend.database.repositories import SessionRepository
 from ...deps import get_db, get_session_repository
 from ...schemas.common import HealthStatus, APIResponse
+from ...middleware.rate_limiter import limiter, get_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +32,14 @@ router = APIRouter()
 
 
 @router.get(
-    "",
+    "/",
     response_model=HealthStatus,
     summary="Health Check",
     description="Verifica el estado de salud del servicio y sus componentes",
 )
+@limiter.limit(get_rate_limit("health"))  # FIX Cortez74: Add rate limiting
 async def health_check(
+    request: Request,  # FIX Cortez74: Required for rate limiter
     db: Session = Depends(get_db),
     session_repo: SessionRepository = Depends(get_session_repository),
 ) -> HealthStatus:
@@ -100,7 +104,8 @@ async def health_check(
     summary="Simple Ping",
     description="Endpoint simple para verificar que el servicio está respondiendo.",
 )
-async def ping() -> APIResponse[dict]:
+@limiter.limit(get_rate_limit("health"))  # FIX Cortez74: Add rate limiting
+async def ping(request: Request) -> APIResponse[dict]:  # FIX Cortez74: Request for rate limiter
     """
     Endpoint minimalista para health checks externos.
 
@@ -139,7 +144,8 @@ async def ping() -> APIResponse[dict]:
         503: {"description": "Service is dead - restart required"},
     },
 )
-async def liveness_probe() -> APIResponse[dict]:
+@limiter.limit(get_rate_limit("health"))  # FIX Cortez74: Add rate limiting
+async def liveness_probe(request: Request) -> APIResponse[dict]:  # FIX Cortez74: Request for limiter
     """
     Liveness probe para Kubernetes.
 
@@ -183,7 +189,9 @@ async def liveness_probe() -> APIResponse[dict]:
         503: {"description": "Service is NOT ready"},
     },
 )
+@limiter.limit(get_rate_limit("health"))  # FIX Cortez74: Add rate limiting
 async def readiness_probe(
+    request: Request,  # FIX Cortez74: Required for rate limiter
     db: Session = Depends(get_db),
 ) -> APIResponse[dict]:
     """

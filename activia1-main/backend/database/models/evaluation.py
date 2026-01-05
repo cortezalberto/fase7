@@ -2,12 +2,13 @@
 Evaluation Model - Process evaluation database model.
 
 Cortez42: Extracted from monolithic models.py (1,772 lines)
+FIX Cortez83: Added GIN indices for JSON columns (PostgreSQL only)
 
 Provides:
 - EvaluationDB: Database model for process-based evaluations
 """
 from sqlalchemy import (
-    Column, String, Float, ForeignKey, JSON, Index, CheckConstraint
+    Column, String, Float, ForeignKey, JSON, Index, CheckConstraint, event, text
 )
 from sqlalchemy.orm import relationship
 
@@ -70,3 +71,24 @@ class EvaluationDB(Base, BaseModel):
             name='ck_eval_ai_dep_range'
         ),
     )
+
+
+# FIX Cortez83: Add GIN indices for JSON columns (PostgreSQL only)
+# These are added via DDL event to avoid errors on SQLite
+@event.listens_for(EvaluationDB.__table__, "after_create")
+def create_gin_indices(target, connection, **kw):
+    """Create GIN indices for JSON columns on PostgreSQL."""
+    if connection.dialect.name == "postgresql":
+        # GIN indices for fast JSON containment queries
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_eval_dimensions_gin
+            ON evaluations USING GIN (dimensions jsonb_path_ops);
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_eval_key_strengths_gin
+            ON evaluations USING GIN (key_strengths jsonb_path_ops);
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_eval_recommendations_gin
+            ON evaluations USING GIN (recommendations jsonb_path_ops);
+        """))

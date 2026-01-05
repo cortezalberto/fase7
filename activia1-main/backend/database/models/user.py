@@ -71,6 +71,12 @@ class UserDB(Base, BaseModel):
         back_populates="acknowledged_by_user",
         foreign_keys="RiskAlertDB.acknowledged_by"
     )
+    # FIX Cortez83: Add teacher_interventions relationship for bidirectional navigation
+    teacher_interventions = relationship(
+        "TeacherInterventionDB",
+        back_populates="teacher",
+        foreign_keys="TeacherInterventionDB.teacher_id"
+    )
 
     # Composite indexes
     __table_args__ = (

@@ -2,6 +2,7 @@
 LTI Repositories - LTI Deployment and Session operations.
 
 Cortez46: Extracted from repositories.py (5,134 lines)
+FIX Cortez83: Added try/except with rollback for database operations
 
 SPRINT 6 - HU-SYS-010: Integración LTI con Moodle
 """
@@ -11,6 +12,7 @@ import logging
 
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.core.constants import utc_now
 from ..models import LTIDeploymentDB, LTISessionDB
@@ -65,9 +67,15 @@ class LTIDeploymentRepository(BaseRepository):
             access_token_url=access_token_url,
             is_active=True,
         )
-        self.db.add(deployment)
-        self.db.commit()
-        self.db.refresh(deployment)
+        # FIX Cortez83: Added try/except with rollback
+        try:
+            self.db.add(deployment)
+            self.db.commit()
+            self.db.refresh(deployment)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create LTI deployment: %s", str(e), exc_info=True)
+            raise
 
         logger.info(
             "LTI deployment created: %s (%s)",
@@ -105,9 +113,10 @@ class LTIDeploymentRepository(BaseRepository):
 
     def get_active_deployments(self) -> List[LTIDeploymentDB]:
         """Get all active LTI deployments."""
+        # FIX Cortez84 MED-REPO-007: Use .is_(True) instead of == True
         return (
             self.db.query(LTIDeploymentDB)
-            .filter(LTIDeploymentDB.is_active == True)
+            .filter(LTIDeploymentDB.is_active.is_(True))
             .order_by(LTIDeploymentDB.platform_name)
             .all()
         )
@@ -185,9 +194,15 @@ class LTISessionRepository(BaseRepository):
             launch_token=launch_token,
             locale=locale,
         )
-        self.db.add(lti_session)
-        self.db.commit()
-        self.db.refresh(lti_session)
+        # FIX Cortez83: Added try/except with rollback
+        try:
+            self.db.add(lti_session)
+            self.db.commit()
+            self.db.refresh(lti_session)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            logger.error("Failed to create LTI session: %s", str(e), exc_info=True)
+            raise
 
         logger.info(
             "LTI session created: %s for user %s",

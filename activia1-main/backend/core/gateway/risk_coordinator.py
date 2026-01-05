@@ -21,8 +21,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ...models.risk import Risk, RiskReport
-from ...models.enums import RiskType, RiskLevel, RiskDimension
+from ...models.risk import Risk, RiskReport, RiskType, RiskLevel, RiskDimension
 from ...models.trace import CognitiveTrace
 
 if TYPE_CHECKING:

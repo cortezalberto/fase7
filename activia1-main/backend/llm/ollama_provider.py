@@ -20,9 +20,11 @@ import httpx
 import json
 import asyncio
 import re
+import random  # FIX Cortez75: For jitter in retry delays
 from contextlib import asynccontextmanager
 
 from .base import LLMProvider, LLMMessage, LLMResponse, LLMRole
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpenError
 
 # Prometheus metrics instrumentation (HIGH-01)
 # Lazy import to avoid circular dependency with api.monitoring
@@ -103,6 +105,14 @@ class OllamaProvider(LLMProvider):
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._semaphore_lock = asyncio.Lock()
 
+        # FIX Cortez75: Circuit breaker for fault tolerance
+        circuit_config = CircuitBreakerConfig(
+            failure_threshold=self.config.get("circuit_failure_threshold", 5),
+            recovery_timeout=self.config.get("circuit_recovery_timeout", 30.0),
+            half_open_max_calls=self.config.get("circuit_half_open_calls", 3)
+        )
+        self._circuit_breaker = CircuitBreaker(f"ollama_{self.model}", circuit_config)
+
         # Remove trailing slash from base_url
         self.base_url = self.base_url.rstrip("/")
 
@@ -152,6 +162,24 @@ class OllamaProvider(LLMProvider):
 
         # Fallback: stringify unknown types
         return str(value)
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """
+        FIX Cortez75: Calculate retry delay with exponential backoff and jitter.
+
+        Adds random jitter to prevent thundering herd problem when
+        multiple requests retry simultaneously.
+
+        Args:
+            attempt: Current retry attempt number (0-indexed)
+
+        Returns:
+            Delay in seconds with jitter applied
+        """
+        base_delay = self.retry_delay * (self.retry_backoff ** attempt)
+        # Add random jitter between 0 and 50% of base delay
+        jitter = random.uniform(0, base_delay * 0.5)
+        return base_delay + jitter
 
     # FIX Cortez67 (HIGH-002): Lock for thread-safe client initialization
     _client_lock: Optional[asyncio.Lock] = None
@@ -300,15 +328,17 @@ class OllamaProvider(LLMProvider):
         temp = temperature if temperature is not None else self.temperature
 
         # FIX Cortez34: Acquire semaphore to limit concurrent LLM calls
+        # FIX Cortez75: Add circuit breaker for fault tolerance
         semaphore = await self._get_semaphore()
         async with semaphore:
-            # ✅ HIGH-01: Use context manager to track LLM call duration
-            metrics = _get_metrics()
-            if metrics:
-                with metrics.record_llm_call("ollama", self.model):
+            async with self._circuit_breaker:
+                # ✅ HIGH-01: Use context manager to track LLM call duration
+                metrics = _get_metrics()
+                if metrics:
+                    with metrics.record_llm_call("ollama", self.model):
+                        return await self._execute_ollama_call(messages, temp, max_tokens, **kwargs)
+                else:
                     return await self._execute_ollama_call(messages, temp, max_tokens, **kwargs)
-            else:
-                return await self._execute_ollama_call(messages, temp, max_tokens, **kwargs)
 
     async def _execute_ollama_call(
         self,
@@ -432,11 +462,11 @@ class OllamaProvider(LLMProvider):
                     error_type = f"HTTP {e.response.status_code}"
                 
                 if should_retry and not is_last_attempt:
-                    # Calculate backoff delay (exponential)
-                    delay = self.retry_delay * (self.retry_backoff ** attempt)
+                    # FIX Cortez75: Use jitter to prevent thundering herd
+                    delay = self._calculate_retry_delay(attempt)
                     logger.warning(
                         f"Ollama {error_type} error (attempt {attempt + 1}/{self.max_retries}). "
-                        f"Retrying in {delay:.1f}s...",
+                        f"Retrying in {delay:.1f}s (with jitter)...",
                         extra={
                             "model": self.model,
                             "attempt": attempt + 1,
@@ -518,10 +548,12 @@ class OllamaProvider(LLMProvider):
         temp = temperature if temperature is not None else self.temperature
 
         # FIX Cortez34: Acquire semaphore to limit concurrent LLM calls
+        # FIX Cortez75: Add circuit breaker for fault tolerance
         semaphore = await self._get_semaphore()
         async with semaphore:
-            async for chunk in self._execute_stream(temp, messages, max_tokens, **kwargs):
-                yield chunk
+            async with self._circuit_breaker:
+                async for chunk in self._execute_stream(temp, messages, max_tokens, **kwargs):
+                    yield chunk
 
     async def _execute_stream(
         self,

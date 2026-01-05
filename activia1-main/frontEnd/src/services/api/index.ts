@@ -45,7 +45,7 @@ export { authService } from './auth.service';
 export { adminService } from './admin.service';
 export { cognitivePathService } from './cognitivePath.service';
 export { institutionalRisksService } from './institutionalRisks.service';
-export { trainingService } from './training.service';
+// Cortez76: Removed trainingService (Entrenador Digital removed)
 export { ltiService } from './lti.service';
 // LTI Types (HU-SYS-010)
 export type {
@@ -74,49 +74,7 @@ export type {
   CognitivePathParams,
   TraceabilitySummaryParams,
 } from './teacherTraceability.service';
-// V1 Types (Legacy)
-export type {
-  TemaInfo,
-  MateriaInfo,
-  SesionEntrenamiento,
-  EjercicioActual,
-  SubmitEjercicioRequest,
-  SubmitEjercicioResponse,
-  ResultadoEjercicio,
-  ResultadoFinal,
-  PistaResponse,
-  SolicitarPistaRequest,
-  CorreccionIARequest,
-  CorreccionIAResponse,
-  LenguajeInfo,
-  LeccionInfo,
-  EjercicioInfo,
-  IniciarEntrenamientoRequest,
-  EstadoSesion,
-} from './training.service';
-// V2 Types - N4 Traceability (Cortez55)
-export type {
-  SolicitarPistaV2Request,
-  PistaV2Response,
-  ReflexionRequest,
-  ReflexionResponse,
-  TraceResumen,
-  RiskFlag,
-  ProcesoAnalisis,
-  ProcesoRequest,
-  ResultadoEjercicioExtendido,
-  ResultadoFinalExtendido,
-  SubmitEjercicioV2Request,
-  SubmitEjercicioV2Response,
-  SesionEntrenamientoExtendida,
-} from './training.service';
-// V2 Enums - N4 Traceability (Cortez55)
-export {
-  CognitiveStateEnum,
-  HelpLevelEnum,
-  RiskTypeEnum,
-  RiskSeverityEnum,
-} from './training.service';
+// Cortez76: Removed V1/V2 training types (Entrenador Digital removed)
 
 // === Types from auth.service (user-specific) ===
 export type { User, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse } from './auth.service';
@@ -219,3 +177,7 @@ export { default as apiClient } from './client';
 
 // === Re-export base service for custom services ===
 export { BaseApiService } from './base.service';
+
+// === Academic Content Services (Cortez72) ===
+export { academicService } from './academic.service';
+export { filesService } from './files.service';

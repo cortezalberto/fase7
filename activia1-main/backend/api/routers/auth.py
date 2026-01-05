@@ -9,9 +9,10 @@ Endpoints:
 - GET /auth/me: Get current user info
 
 FIX Cortez51: Migrated HTTPExceptions to custom exceptions
+FIX Cortez83: Added rate limiting to prevent brute force attacks
 """
 import logging
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, field_validator
@@ -19,6 +20,7 @@ from typing import Optional, List
 from datetime import timedelta
 
 from backend.database.config import get_db
+from backend.api.middleware.rate_limiter import limiter
 # FIX Cortez25: Use UserDB from database.models to avoid duplicate table definition
 from backend.database.models import UserDB as User
 from backend.models.user import UserRole
@@ -242,7 +244,8 @@ def _user_to_response(user) -> UserResponseSchema:
     summary="Register new user",
     description="Register a new user and return user info with tokens"
 )
-async def register(user_data: UserRegisterSchema, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # FIX Cortez83: Rate limit to prevent registration abuse
+async def register(request: Request, user_data: UserRegisterSchema, db: Session = Depends(get_db)):
     """
     Register a new user.
 
@@ -298,7 +301,9 @@ async def register(user_data: UserRegisterSchema, db: Session = Depends(get_db))
     summary="Login with JSON (frontend compatible)",
     description="Login with email and password in JSON body. Returns user info with tokens."
 )
+@limiter.limit("10/minute")  # FIX Cortez83: Rate limit to prevent brute force attacks
 async def login_json(
+    request: Request,
     credentials: LoginRequest,
     db: Session = Depends(get_db)
 ):
@@ -372,7 +377,9 @@ async def login_json(
     summary="Login with OAuth2 FormData (Swagger compatible)",
     description="OAuth2 compatible login endpoint for Swagger UI testing"
 )
+@limiter.limit("10/minute")  # FIX Cortez83: Rate limit to prevent brute force attacks
 async def login_oauth2(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):

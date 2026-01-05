@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import StudentTraceabilityViewer from '../components/teacher/StudentTraceabilityViewer';
 
+// FIX MED-009 Cortez77: Campos opcionales para evitar errores si el backend no los envía
 interface TeacherAlert {
   alert_id: string;
   student_id: string;
@@ -41,7 +42,7 @@ interface TeacherAlert {
   activity_id: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
   reasons: string[];
-  suggestions: string[];
+  suggestions?: string[]; // Opcional - puede no venir del backend
   metrics: {
     critical_risks: number;
     high_risks: number;
@@ -128,68 +129,90 @@ export default function StudentMonitoringPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   // FIX Cortez71: Removed console.error, only log in DEV
+  // FIX CRIT-002 Cortez77: Agregar signal opcional para verificar abort antes de setState
   // Load alerts
-  const loadAlerts = useCallback(async () => {
+  const loadAlerts = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = severityFilter !== 'all' ? `?severity=${severityFilter}` : '';
       const response = await apiClient.get<{ data: AlertsResponse }>(`/teacher/alerts${params}`);
+      if (signal?.aborted) return;
       const data = response.data;
       setAlerts('data' in data ? data.data : data as unknown as AlertsResponse);
-    } catch {
-      // Error handled silently - alerts will show empty
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // FIX HIGH-006 Cortez77: Logging condicional en DEV
+      if (import.meta.env.DEV) console.error('Error loading alerts:', err);
     }
   }, [severityFilter]);
 
+  // FIX CRIT-002 Cortez77: Agregar signal para verificar abort
   // Load comparison
-  const loadComparison = useCallback(async () => {
+  const loadComparison = useCallback(async (signal?: AbortSignal) => {
     if (!activityFilter) return;
     try {
       const response = await apiClient.get<{ data: StudentComparison }>(`/teacher/students/compare?activity_id=${activityFilter}`);
+      if (signal?.aborted) return;
       const data = response.data;
       setComparison('data' in data ? data.data : data as unknown as StudentComparison);
-    } catch {
-      // Error handled silently
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // FIX HIGH-006 Cortez77: Logging condicional en DEV
+      if (import.meta.env.DEV) console.error('Error loading comparison:', err);
     }
   }, [activityFilter]);
 
+  // FIX CRIT-002 Cortez77: Agregar signal para verificar abort
   // Load active sessions
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await sessionsService.list('');
+      if (signal?.aborted) return;
       // Filter for active sessions only
       const activeSessions = (response.data || []).filter(s => s.status === 'active');
       setSessions(activeSessions);
-    } catch {
-      // Error handled silently
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // FIX HIGH-006 Cortez77: Logging condicional en DEV
+      if (import.meta.env.DEV) console.error('Error loading sessions:', err);
     }
   }, []);
 
+  // FIX CRIT-002 Cortez77: Agregar signal para verificar abort
   // Load traceability summary
-  const loadTraceabilitySummary = useCallback(async () => {
+  const loadTraceabilitySummary = useCallback(async (signal?: AbortSignal) => {
     try {
       const data = await teacherTraceabilityService.getTraceabilitySummary({
         activity_id: activityFilter || undefined,
       });
+      if (signal?.aborted) return;
       setTraceabilitySummary(data);
-    } catch {
-      // Error handled silently
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // FIX HIGH-006 Cortez77: Logging condicional en DEV
+      if (import.meta.env.DEV) console.error('Error loading traceability:', err);
     }
   }, [activityFilter]);
 
   // FIX Cortez71 HIGH-003: Use AbortController for proper cleanup
+  // FIX CRIT-002 Cortez77: Pasar signal a los callbacks para evitar memory leaks
   // Initial load and auto-refresh
   useEffect(() => {
     const abortController = new AbortController();
+    const { signal } = abortController;
 
     const loadData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        await Promise.all([loadAlerts(), loadSessions(), loadTraceabilitySummary()]);
+        await Promise.all([
+          loadAlerts(signal),
+          loadSessions(signal),
+          loadTraceabilitySummary(signal)
+        ]);
       } catch {
-        if (!abortController.signal.aborted) setError('Error al cargar datos de monitoreo');
+        if (!signal.aborted) setError('Error al cargar datos de monitoreo');
       } finally {
-        if (!abortController.signal.aborted) setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       }
     };
     loadData();
@@ -198,10 +221,10 @@ export default function StudentMonitoringPage() {
     let interval: ReturnType<typeof setInterval> | undefined;
     if (autoRefresh) {
       interval = setInterval(() => {
-        if (!abortController.signal.aborted) {
-          loadAlerts();
-          loadSessions();
-          loadTraceabilitySummary();
+        if (!signal.aborted) {
+          loadAlerts(signal);
+          loadSessions(signal);
+          loadTraceabilitySummary(signal);
         }
       }, 30000);
     }
@@ -212,17 +235,23 @@ export default function StudentMonitoringPage() {
     };
   }, [loadAlerts, loadSessions, loadTraceabilitySummary, autoRefresh]);
 
+  // FIX CRIT-002 Cortez77: AbortController para useEffect de comparación
   // Load comparison when activity filter changes
   useEffect(() => {
     if (activityFilter && viewMode === 'comparison') {
-      loadComparison();
+      const abortController = new AbortController();
+      loadComparison(abortController.signal);
+      return () => abortController.abort();
     }
   }, [activityFilter, viewMode, loadComparison]);
 
+  // FIX CRIT-002 Cortez77: AbortController para useEffect de trazabilidad
   // Load traceability when viewing traceability tab
   useEffect(() => {
     if (viewMode === 'traceability') {
-      loadTraceabilitySummary();
+      const abortController = new AbortController();
+      loadTraceabilitySummary(abortController.signal);
+      return () => abortController.abort();
     }
   }, [viewMode, loadTraceabilitySummary]);
 
@@ -273,12 +302,13 @@ export default function StudentMonitoringPage() {
     });
   }, [sessions, searchQuery]);
 
-  const views = [
+  // FIX MED-001 Cortez77: Memoizar views array para evitar recreacion en cada render
+  const views = useMemo(() => [
     { id: 'alerts' as ViewMode, label: 'Alertas', icon: AlertTriangle, count: alerts?.total_alerts },
     { id: 'sessions' as ViewMode, label: 'Sesiones Activas', icon: Activity, count: sessions.length },
     { id: 'comparison' as ViewMode, label: 'Comparacion', icon: BarChart3 },
     { id: 'traceability' as ViewMode, label: 'Trazabilidad N4', icon: GitBranch, count: traceabilitySummary?.total_traces },
-  ];
+  ], [alerts?.total_alerts, sessions.length, traceabilitySummary?.total_traces]);
 
   if (isLoading) {
     return (
@@ -500,7 +530,8 @@ export default function StudentMonitoringPage() {
                         </span>
                       </div>
 
-                      {alert.suggestions.length > 0 && (
+                      {/* FIX MED-009 Cortez77: Verificar suggestions antes de acceder */}
+                      {alert.suggestions && alert.suggestions.length > 0 && (
                         <div className="mt-3 p-2 bg-[var(--bg-secondary)] rounded text-xs">
                           <span className="font-medium text-[var(--text-muted)]">Sugerencias: </span>
                           <span className="text-[var(--text-secondary)]">{alert.suggestions.join(' • ')}</span>

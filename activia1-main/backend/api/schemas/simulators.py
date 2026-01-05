@@ -84,8 +84,14 @@ class InterviewCompleteRequest(BaseModel):
     interview_id: str = Field(..., description="Interview session ID")
 
 
-class InterviewResponse(BaseModel):
-    """Response with interview details"""
+# FIX Cortez75: Renamed to avoid collision with sprint5_6.InterviewResponse
+# This is for full interview session details, sprint5_6.InterviewResponse is for individual answers
+class InterviewSessionDetailsResponse(BaseModel):
+    """Response with full interview session details.
+
+    Note: sprint5_6.InterviewResponse is for individual question answers.
+    Use InterviewSessionDetailsResponse for complete session info.
+    """
 
     interview_id: str
     session_id: str
@@ -100,6 +106,11 @@ class InterviewResponse(BaseModel):
     duration_minutes: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+
+# Backwards compatibility alias
+# DEPRECATED Cortez75: Use InterviewSessionDetailsResponse instead
+InterviewResponse = InterviewSessionDetailsResponse
 
 
 # ============================================================================

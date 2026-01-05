@@ -411,7 +411,8 @@ export default function TeacherDashboardPage() {
                     <div
                       className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full"
                       style={{
-                        width: `${Math.min((agent.usage_count / Math.max(...analytics.most_used_agents.map(a => a.usage_count))) * 100, 100)}%`
+                        // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                        width: `${Math.min((agent.usage_count / Math.max(...analytics.most_used_agents.map(a => a.usage_count), 1)) * 100, 100)}%`
                       }}
                     />
                   </div>
@@ -450,7 +451,9 @@ export default function TeacherDashboardPage() {
                   .sort((a, b) => b[1] - a[1])
                   .slice(0, 5)
                   .map(([state, count]) => {
-                    const maxCount = Math.max(...Object.values(traceabilitySummary.cognitive_states_global));
+                    // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                    const stateValues = Object.values(traceabilitySummary.cognitive_states_global);
+                    const maxCount = stateValues.length > 0 ? Math.max(...stateValues, 1) : 1;
                     const percentage = (count / maxCount) * 100;
 
                     return (

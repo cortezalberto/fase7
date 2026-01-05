@@ -5,10 +5,14 @@ Captura y reconstruye el proceso completo de razonamiento híbrido humano-IA
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+import asyncio  # FIX Cortez73: For LLM timeout
 import json
 import re
 import logging  # FIX Cortez33: Add logging
 import uuid  # FIX Cortez68 (HIGH-010): Use UUID for unique trace IDs
+
+# FIX Cortez73 (HIGH-003): Timeout for LLM calls
+LLM_TIMEOUT_SECONDS = 30.0
 
 from ..models.trace import CognitiveTrace, TraceLevel, TraceSequence, InteractionType
 
@@ -441,11 +445,15 @@ Identifica patrones cognitivos, estrategias y calidad del razonamiento."""
         ]
 
         try:
-            response = await self.llm_provider.generate(
-                messages=messages,
-                temperature=0.4,
-                max_tokens=700,
-                is_code_analysis=False  # Usar Flash para análisis de trazabilidad
+            # FIX Cortez73 (HIGH-003): Add timeout to prevent indefinite hangs
+            response = await asyncio.wait_for(
+                self.llm_provider.generate(
+                    messages=messages,
+                    temperature=0.4,
+                    max_tokens=700,
+                    is_code_analysis=False  # Usar Flash para análisis de trazabilidad
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
 
             # Extraer JSON
@@ -454,6 +462,9 @@ Identifica patrones cognitivos, estrategias y calidad del razonamiento."""
                 return json.loads(json_match.group())
             return None
 
+        except asyncio.TimeoutError:
+            logger.warning("LLM cognitive analysis timed out after %ss", LLM_TIMEOUT_SECONDS)
+            return None
         except Exception as e:
             # FIX Cortez33: Use logger instead of print
             # FIX Cortez36: Use lazy logging formatting

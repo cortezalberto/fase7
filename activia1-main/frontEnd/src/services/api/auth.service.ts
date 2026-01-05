@@ -79,15 +79,11 @@ class AuthService extends BaseApiService {
    * Response: APIResponse[UserWithTokenResponse] = { success, data: { user, tokens } }
    */
   async login(credentials: LoginRequest): Promise<LoginResponse> {
-    // Debug: log what we're sending to the API
-    console.log('[AuthService] login() sending:', { email: credentials.email, password: '***' });
-
     // Use post helper which extracts response.data.data automatically
     const apiResponse = await post<AuthApiResponse>('/auth/login', {
       email: credentials.email,
       password: credentials.password,
     });
-    console.log('[AuthService] login() response received');
 
     const result: LoginResponse = {
       access_token: apiResponse.tokens?.access_token || '',

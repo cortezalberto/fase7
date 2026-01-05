@@ -2,7 +2,7 @@
 Tutor Mode Strategies Package - Strategy Pattern for T-IA-Cog modes.
 
 Cortez46: Extracted from tutor.py (1,422 lines) using Strategy Pattern.
-Cortez50: Added TrainingHintsStrategy for Digital Trainer integration.
+Cortez76: Removed TrainingHintsStrategy (Entrenador Digital removed).
 
 This package provides modular tutor mode implementations:
 - base.py: Abstract TutorModeStrategy base class
@@ -10,7 +10,6 @@ This package provides modular tutor mode implementations:
 - explicative.py: Conceptual explanation mode (TutorMode.EXPLICATIVO)
 - guided.py: Guided hints with scaffolding (TutorMode.GUIADO)
 - metacognitive.py: Metacognitive reflection mode (TutorMode.METACOGNITIVO)
-- training_hints.py: Training-specific hints for Digital Trainer (Cortez50)
 
 Usage:
     from backend.agents.tutor_modes import (
@@ -19,7 +18,6 @@ Usage:
         ExplicativeStrategy,
         GuidedStrategy,
         MetacognitiveStrategy,
-        TrainingHintsStrategy,
         TutorModeFactory,
     )
 """
@@ -29,13 +27,6 @@ from .socratic import SocraticStrategy
 from .explicative import ExplicativeStrategy
 from .guided import GuidedStrategy
 from .metacognitive import MetacognitiveStrategy
-from .training_hints import (
-    TrainingHintsStrategy,
-    ExerciseContext,
-    AttemptContext,
-    TrainingHintRequest,
-    create_training_hints_strategy,
-)
 from .factory import TutorModeFactory
 
 __all__ = [
@@ -47,12 +38,6 @@ __all__ = [
     "ExplicativeStrategy",
     "GuidedStrategy",
     "MetacognitiveStrategy",
-    # Training (Cortez50)
-    "TrainingHintsStrategy",
-    "ExerciseContext",
-    "AttemptContext",
-    "TrainingHintRequest",
-    "create_training_hints_strategy",
     # Factory
     "TutorModeFactory",
 ]

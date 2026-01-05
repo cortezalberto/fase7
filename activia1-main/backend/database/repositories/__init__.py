@@ -79,6 +79,12 @@ from .profile_repository import (
     TraceSequenceRepository,
 )
 
+# Academic content repositories (Cortez72)
+from .unidad_repository import UnidadRepository
+
+# Teacher intervention repository (Cortez82)
+from .intervention_repository import InterventionRepository
+
 __all__ = [
     # Base
     "BaseRepository",
@@ -115,4 +121,8 @@ __all__ = [
     "StudentProfileRepository",
     "SubjectRepository",
     "TraceSequenceRepository",
+    # Academic content (Cortez72)
+    "UnidadRepository",
+    # Teacher intervention (Cortez82)
+    "InterventionRepository",
 ]

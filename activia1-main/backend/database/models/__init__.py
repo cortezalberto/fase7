@@ -83,6 +83,16 @@ from .exercise import (
     RubricLevelDB,
 )
 
+# Academic content (units, notes, files)
+from .unidad import (
+    UnidadDB,
+    ApuntesDB,
+    ArchivoAdjuntoDB,
+)
+
+# Teacher interventions (Cortez82)
+from .teacher_intervention import TeacherInterventionDB
+
 # Legacy alias for utc_now (original name in models.py)
 _utc_now = utc_now
 
@@ -123,4 +133,10 @@ __all__ = [
     "ExerciseAttemptDB",
     "ExerciseRubricCriterionDB",
     "RubricLevelDB",
+    # Academic content
+    "UnidadDB",
+    "ApuntesDB",
+    "ArchivoAdjuntoDB",
+    # Teacher interventions
+    "TeacherInterventionDB",
 ]

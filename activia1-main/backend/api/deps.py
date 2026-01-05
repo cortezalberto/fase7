@@ -16,6 +16,7 @@ from ..database.repositories import (
     TraceRepository,
     TraceSequenceRepository,
     UserRepository,
+    InterventionRepository,  # Cortez82
 )
 from ..core import AIGateway
 from ..core.cache import get_llm_cache
@@ -79,6 +80,11 @@ def get_sequence_repository(db: Session = Depends(get_db)) -> TraceSequenceRepos
 def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
     """Dependency para obtener el repositorio de usuarios"""
     return UserRepository(db)
+
+
+def get_intervention_repository(db: Session = Depends(get_db)) -> InterventionRepository:
+    """Dependency para obtener el repositorio de intervenciones (Cortez82)"""
+    return InterventionRepository(db)
 
 
 # =============================================================================
@@ -472,21 +478,19 @@ async def get_current_active_user(
     return current_user
 
 
-async def require_role(required_role: str):
+def require_role(required_role: str):
     """
     Dependency factory para requerir un rol específico.
 
     Args:
-        required_role: Rol requerido (student, instructor, admin)
+        required_role: Rol requerido (student, instructor, admin, teacher)
 
     Returns:
         Dependency function
 
     Example:
-        require_instructor = Depends(require_role("instructor"))
-
         @app.post("/evaluations")
-        def create_evaluation(user: dict = require_instructor):
+        def create_evaluation(user: dict = Depends(require_role("instructor"))):
             ...
     """
 

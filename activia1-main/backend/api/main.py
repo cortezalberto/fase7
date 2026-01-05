@@ -72,9 +72,10 @@ from .routers.events import router as events_router
 from .routers.exercises import router as exercises_router
 # Cortez66: Renamed from auth_new.py to auth.py
 from .routers.auth import router as auth_router
-from .routers.training import router as training_router
-from .routers.training import integration_router as training_integration_router  # Cortez50
-from .middleware import setup_exception_handlers, setup_logging_middleware
+# Cortez76: Removed training routers (Entrenador Digital removed)
+# Cortez82: WebSocket alerts for real-time notifications
+from .routers.websocket_alerts import router as websocket_alerts_router
+from .middleware import setup_exception_handlers, setup_logging_middleware, setup_security_headers
 from .middleware.rate_limiter import limiter, rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -165,33 +166,36 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("AI-Native MVP - Shutting down")
 
+    # FIX Cortez74: Import asyncio for shutdown timeout
+    import asyncio
+
+    # FIX Cortez74: Graceful shutdown with timeout for all cleanup operations
+    SHUTDOWN_TIMEOUT_SECONDS = 10.0
+
     # BE-MEM-002: Stop periodic cache cleanup
     try:
         from ..core.cache import stop_periodic_cache_cleanup
-        await stop_periodic_cache_cleanup()
+        await asyncio.wait_for(stop_periodic_cache_cleanup(), timeout=SHUTDOWN_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("Cache cleanup stop timed out after %s seconds", SHUTDOWN_TIMEOUT_SECONDS)
     except Exception as e:
         # FIX Cortez46: Use lazy logging formatting
         logger.warning("Failed to stop cache cleanup (non-critical): %s", e)
 
     # FIX Cortez35: Close LLM provider to prevent connection leaks
+    # FIX Cortez74: Added timeout wrapper
     try:
         if hasattr(app.state, 'llm_provider') and app.state.llm_provider is not None:
             logger.info("Closing LLM provider...")
-            await app.state.llm_provider.close()
+            await asyncio.wait_for(app.state.llm_provider.close(), timeout=SHUTDOWN_TIMEOUT_SECONDS)
             logger.info("LLM provider closed successfully")
+    except asyncio.TimeoutError:
+        logger.warning("LLM provider close timed out after %s seconds", SHUTDOWN_TIMEOUT_SECONDS)
     except Exception as e:
         # FIX Cortez46: Use lazy logging formatting
         logger.warning("Failed to close LLM provider (non-critical): %s", e)
 
-    # FIX Cortez67 (HIGH-004): Close Redis client to release connections
-    try:
-        from .routers.training.session_storage import redis_client, USE_REDIS
-        if USE_REDIS and redis_client:
-            logger.info("Closing Redis client...")
-            redis_client.close()
-            logger.info("Redis client closed successfully")
-    except Exception as e:
-        logger.warning("Failed to close Redis client (non-critical): %s", e)
+    # Cortez76: Removed Redis training session storage (Entrenador Digital removed)
 
     # FIX Cortez35: Dispose database connection pool
     try:
@@ -363,6 +367,9 @@ else:
 # Middleware personalizado
 setup_logging_middleware(app)
 setup_exception_handlers(app)
+# FIX Cortez83: Add security headers middleware
+# HSTS is disabled by default - enable in production with HTTPS
+setup_security_headers(app, enable_hsts=False)
 
 # =============================================================================
 # Configurar Rate Limiting
@@ -416,10 +423,7 @@ app.include_router(evaluations_router, prefix=API_V1_PREFIX)
 app.include_router(events_router, prefix=API_V1_PREFIX)
 app.include_router(exercises_router, prefix=API_V1_PREFIX)
 app.include_router(auth_router, prefix=API_V1_PREFIX)  # Cortez66: Renamed
-app.include_router(training_router, prefix=API_V1_PREFIX)
-
-# Cortez50 - Training Integration with T-IA-Cog and N4 Traceability
-app.include_router(training_integration_router, prefix=API_V1_PREFIX)
+# Cortez76: Removed training routers (Entrenador Digital removed)
 
 # FASE 3.2 - Nuevos componentes de UI y Trazabilidad N4 Completa
 from .routers.cognitive_status import router as cognitive_status_router
@@ -428,8 +432,18 @@ from .routers.simulators_enhanced import router as simulators_enhanced_router
 app.include_router(cognitive_status_router, prefix=API_V1_PREFIX)
 app.include_router(simulators_enhanced_router, prefix=API_V1_PREFIX)
 
+# Cortez72 - Academic Content Management (Units, Notes, Files)
+from .routers.academic_content import router as academic_router
+from .routers.files import router as files_router
+
+app.include_router(academic_router, prefix=API_V1_PREFIX)
+app.include_router(files_router, prefix=API_V1_PREFIX)
+
+# Cortez82 - WebSocket alerts for real-time teacher notifications
+app.include_router(websocket_alerts_router, prefix=API_V1_PREFIX)
+
 # FIX Cortez46: Use lazy logging formatting
-logger.info("Routers registered with prefix: %s (23 routers total, including FASE 3.2)", API_V1_PREFIX)
+logger.info("Routers registered with prefix: %s (26 routers total, including Cortez82)", API_V1_PREFIX)
 logger.info("Prometheus metrics endpoint: /metrics")
 
 

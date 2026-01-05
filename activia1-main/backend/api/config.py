@@ -83,6 +83,10 @@ RATE_LIMIT_PER_HOUR = int(os.getenv("RATE_LIMIT_PER_HOUR", "1000"))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "30"))
 DB_QUERY_TIMEOUT_SECONDS = int(os.getenv("DB_QUERY_TIMEOUT_SECONDS", "10"))
 
+# FIX Cortez84 CRIT-GW-001: Centralize LLM timeout configuration
+# Timeout for LLM API calls (prevents indefinite hangs)
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30.0"))
+
 
 # =============================================================================
 # Configuración de Seguridad

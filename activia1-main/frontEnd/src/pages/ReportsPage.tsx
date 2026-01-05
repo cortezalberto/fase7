@@ -538,7 +538,8 @@ export default function ReportsPage() {
                             <div
                               className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full"
                               style={{
-                                width: `${Math.min((agent.usage_count / Math.max(...analytics.most_used_agents.map(a => a.usage_count))) * 100, 100)}%`
+                                // FIX CRIT-001 Cortez77: Guardia contra división por cero
+                                width: `${Math.min((agent.usage_count / Math.max(...analytics.most_used_agents.map(a => a.usage_count), 1)) * 100, 100)}%`
                               }}
                             />
                           </div>

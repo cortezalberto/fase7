@@ -9,10 +9,17 @@ Supports:
 
 FIX Cortez67: Added thread-safe singleton pattern for database configuration
 to prevent race conditions in multi-worker deployments.
+
+FIX Cortez79: Load dotenv at module level to ensure DATABASE_URL is available
+before any database initialization occurs.
 """
 import logging
 import os
 import threading
+
+# FIX Cortez79: Load .env FIRST before reading any environment variables
+from dotenv import load_dotenv
+load_dotenv()
 from contextlib import contextmanager
 from typing import Generator, Optional
 
@@ -179,7 +186,10 @@ def init_database(
         if create_tables:
             _db_config.create_all_tables()
 
-        logger.info("Database initialized: %s", database_url or "SQLite default")
+        # FIX Cortez79: Log the actual URL being used, not the passed parameter
+        actual_url = _db_config.database_url
+        db_type = "PostgreSQL" if "postgresql" in actual_url else "SQLite"
+        logger.info("Database initialized: %s (%s)", db_type, actual_url.split("@")[-1] if "@" in actual_url else actual_url)
         return _db_config
 
 

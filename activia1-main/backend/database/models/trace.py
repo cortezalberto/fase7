@@ -108,6 +108,15 @@ class CognitiveTraceDB(Base, BaseModel):
             "trace_level IN ('n1_superficial', 'n2_tecnico', 'n3_interaccional', 'n4_cognitivo')",
             name='ck_trace_level_valid'
         ),
+        # FIX Cortez74 (MED-DB-002): Add CheckConstraint for interaction_type enum values
+        CheckConstraint(
+            "interaction_type IN ("
+            "'student_prompt', 'ai_response', 'code_commit', 'tutor_intervention', "
+            "'teacher_feedback', 'strategy_change', 'hypothesis_formulation', "
+            "'self_correction', 'ai_critique'"
+            ")",
+            name='ck_trace_interaction_type_valid'
+        ),
         # GIN indexes for JSONB columns (PostgreSQL only)
         Index('idx_trace_semantic_gin', 'semantic_understanding', postgresql_using='gin'),
         Index('idx_trace_algorithmic_gin', 'algorithmic_evolution', postgresql_using='gin'),

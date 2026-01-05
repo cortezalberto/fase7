@@ -2,6 +2,7 @@
 Deep Diagnostics - Heavyweight Health Checks
 
 Cortez66: Extracted from health.py
+FIX Cortez74: Added rate limiting to prevent abuse
 
 Endpoints:
 - GET /health/deep: Comprehensive health check with metrics
@@ -15,13 +16,14 @@ import os
 import sys
 from typing import Dict, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.core.constants import utc_now
 from ...deps import get_db
 from ...schemas.common import APIResponse
+from ...middleware.rate_limiter import limiter
 from .utils import get_process_memory_mb, get_gc_stats
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,9 @@ router = APIRouter()
         503: {"description": "Service is unhealthy or degraded"},
     },
 )
+@limiter.limit("30/minute")  # FIX Cortez74: More restrictive for deep check (expensive)
 async def deep_health_check(
+    request: Request,  # FIX Cortez74: Required for rate limiter
     db: Session = Depends(get_db),
 ) -> APIResponse[dict]:
     """

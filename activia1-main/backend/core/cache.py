@@ -252,15 +252,23 @@ class LLMResponseCache:
         # CRITICAL: Este salt DEBE ser único por institución
         cache_salt = os.getenv("CACHE_SALT", "")
 
-        # Validar que en producción se use un salt personalizado
+        # FIX Cortez74 (CRITICAL-SEC-001): Fail hard in production if salt not set
+        # Previously used a default fallback which defeats cache key security
         environment = os.getenv("ENVIRONMENT", "development")
         if environment == "production" and not cache_salt:
-            logger.warning(
-                "SECURITY WARNING: CACHE_SALT not set in production. "
-                "Using default salt is insecure. Generate one with: "
-                "python -c 'import secrets; print(secrets.token_hex(32))'"
+            error_msg = (
+                "SECURITY CRITICAL: CACHE_SALT must be set in production. "
+                "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
             )
-            cache_salt = "default_insecure_salt_CHANGE_IN_PRODUCTION"
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+        elif not cache_salt:
+            # Only use default in development/testing
+            logger.warning(
+                "CACHE_SALT not set in %s environment. Using development default.",
+                environment
+            )
+            cache_salt = "dev_cache_salt_not_for_production"
 
         # Serializar datos de entrada de forma determinística
         data = {
@@ -478,6 +486,17 @@ def get_llm_cache(
 # BE-MEM-002: Scheduled cache cleanup task
 _cleanup_task: Optional["asyncio.Task"] = None
 _cleanup_running = False
+# FIX Cortez84 CRIT-CONC-001: Add asyncio lock to protect _cleanup_running access
+_cleanup_lock: Optional["asyncio.Lock"] = None
+
+
+async def _get_cleanup_lock() -> "asyncio.Lock":
+    """Get or create the cleanup lock (lazy initialization)."""
+    global _cleanup_lock
+    if _cleanup_lock is None:
+        import asyncio
+        _cleanup_lock = asyncio.Lock()
+    return _cleanup_lock
 
 
 async def start_periodic_cache_cleanup(interval_seconds: Optional[int] = None) -> None:
@@ -493,12 +512,15 @@ async def start_periodic_cache_cleanup(interval_seconds: Optional[int] = None) -
     import asyncio
     global _cleanup_task, _cleanup_running
 
-    if _cleanup_running:
-        logger.warning("Cache cleanup task already running")
-        return
+    # FIX Cortez84 CRIT-CONC-001: Use lock to prevent race condition
+    lock = await _get_cleanup_lock()
+    async with lock:
+        if _cleanup_running:
+            logger.warning("Cache cleanup task already running")
+            return
 
-    interval = interval_seconds or CACHE_CLEANUP_INTERVAL_SECONDS
-    _cleanup_running = True
+        interval = interval_seconds or CACHE_CLEANUP_INTERVAL_SECONDS
+        _cleanup_running = True
 
     async def cleanup_loop():
         global _cleanup_running
@@ -539,15 +561,18 @@ def _log_task_errors(task: "asyncio.Task") -> None:
 
 async def stop_periodic_cache_cleanup() -> None:
     """Stop the periodic cache cleanup task."""
+    import asyncio
     global _cleanup_task, _cleanup_running
 
-    _cleanup_running = False
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
-        try:
-            import asyncio
-            await asyncio.wait_for(_cleanup_task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            pass
-        _cleanup_task = None
-        logger.info("Cache cleanup task stopped")
+    # FIX Cortez84 CRIT-CONC-001: Use lock to prevent race condition
+    lock = await _get_cleanup_lock()
+    async with lock:
+        _cleanup_running = False
+        if _cleanup_task and not _cleanup_task.done():
+            _cleanup_task.cancel()
+            try:
+                await asyncio.wait_for(_cleanup_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            _cleanup_task = None
+            logger.info("Cache cleanup task stopped")

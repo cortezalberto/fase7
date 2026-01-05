@@ -136,3 +136,20 @@ export type {
   PaginatedResponse,
   HealthResponse,
 } from './api.types';
+
+// ==================== ACADEMIC (Cortez72) ====================
+export type {
+  RecursoExterno,
+  ApuntesCreate,
+  ApuntesUpdate,
+  ApuntesResponse,
+  UnidadCreate,
+  UnidadUpdate,
+  UnidadResponse,
+  UnidadConApuntes,
+  UnidadConEjercicios,
+  MateriaResponse,
+  MateriaConUnidades,
+  ArchivoAdjunto,
+  ArchivoUploadResponse,
+} from './academic.types';

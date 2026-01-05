@@ -155,6 +155,8 @@ class ActivityRepository:
 
         Only allows updating safe, user-modifiable fields via whitelist.
 
+        FIX Cortez75 HIGH-REPO-001: Added SELECT FOR UPDATE to prevent race conditions.
+
         Args:
             activity_id: Activity ID to update
             **kwargs: Fields to update
@@ -178,7 +180,15 @@ class ActivityRepository:
             "max_ai_assistance": float,
         }
 
-        activity = self.get_by_activity_id(activity_id)
+        # FIX Cortez75 HIGH-REPO-001: Use SELECT FOR UPDATE to prevent race conditions
+        try:
+            stmt = select(ActivityDB).where(ActivityDB.activity_id == activity_id).with_for_update()
+            activity = self.db.execute(stmt).scalar_one_or_none()
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to lock activity %s for update: %s", activity_id, e, exc_info=True)
+            raise
+
         if not activity:
             return None
 
@@ -234,10 +244,15 @@ class ActivityRepository:
 
                 setattr(activity, key, value)
 
-        activity.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(activity)
-        return activity
+        try:
+            activity.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(activity)
+            return activity
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to update activity %s: %s", activity_id, e, exc_info=True)
+            raise
 
     def publish(self, activity_id: str) -> Optional[ActivityDB]:
         """

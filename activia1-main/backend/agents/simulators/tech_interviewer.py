@@ -297,7 +297,8 @@ Responde SOLO en formato JSON:
                 "feedback": "No se registraron respuestas en la entrevista."
             }
 
-        # Calculate average scores
+        # Calculate average scores (scale 0-1 internally, convert to 0-10 for output)
+        # FIX Cortez73 (HIGH-005): Normalize scores to 0-10 scale for consistency
         clarity_scores = [r.get("evaluation", {}).get("clarity_score", 0.5) for r in respuestas]
         accuracy_scores = [r.get("evaluation", {}).get("technical_accuracy", 0.5) for r in respuestas]
         thinking_aloud_count = sum(1 for r in respuestas if r.get("evaluation", {}).get("thinking_aloud", False))
@@ -306,13 +307,16 @@ Responde SOLO en formato JSON:
         avg_accuracy = sum(accuracy_scores) / len(accuracy_scores)
         communication_score = min((thinking_aloud_count / len(respuestas)) * 1.2, 1.0)
 
-        # Weighted global score
-        overall_score = (avg_clarity * 0.3 + avg_accuracy * 0.5 + communication_score * 0.2)
+        # Weighted global score (0-1 scale internally)
+        overall_score_raw = (avg_clarity * 0.3 + avg_accuracy * 0.5 + communication_score * 0.2)
+
+        # FIX Cortez73: Convert to 0-10 scale for consistency with EvaluationDB and evaluator.py
+        overall_score = overall_score_raw * 10
 
         breakdown = {
-            "clarity": round(avg_clarity, 2),
-            "technical_accuracy": round(avg_accuracy, 2),
-            "communication": round(communication_score, 2),
+            "clarity": round(avg_clarity * 10, 1),  # Now 0-10
+            "technical_accuracy": round(avg_accuracy * 10, 1),  # Now 0-10
+            "communication": round(communication_score * 10, 1),  # Now 0-10
             "thinking_aloud_percentage": round((thinking_aloud_count / len(respuestas)) * 100, 1)
         }
 
@@ -322,16 +326,17 @@ Responde SOLO en formato JSON:
             try:
                 from ...llm.base import LLMMessage, LLMRole
 
+                # FIX Cortez73: Update prompt to use 0-10 scale
                 system_prompt = f"""Eres un entrevistador tecnico senior proporcionando feedback final.
 
 Tipo de entrevista: {tipo_entrevista}
 Numero de preguntas: {len(preguntas)}
-Score global: {overall_score:.2f} / 1.0
+Score global: {overall_score:.1f} / 10
 
-Scores por dimension:
-- Claridad: {avg_clarity:.2f}
-- Precision tecnica: {avg_accuracy:.2f}
-- Comunicacion: {communication_score:.2f}
+Scores por dimension (escala 0-10):
+- Claridad: {breakdown['clarity']:.1f}/10
+- Precision tecnica: {breakdown['technical_accuracy']:.1f}/10
+- Comunicacion: {breakdown['communication']:.1f}/10
 
 Genera un feedback narrativo (4-5 oraciones) que:
 1. Resuma el desempeno general
@@ -370,17 +375,23 @@ Responde SOLO con el feedback, sin formato JSON."""
         }
 
     def _generate_fallback_feedback(self, overall_score: float, breakdown: Dict[str, float]) -> str:
-        """Generate basic feedback without LLM."""
-        if overall_score >= 0.8:
+        """Generate basic feedback without LLM.
+
+        Args:
+            overall_score: Score on 0-10 scale (FIX Cortez73)
+            breakdown: Score breakdown with 0-10 values
+        """
+        # FIX Cortez73: Update thresholds for 0-10 scale
+        if overall_score >= 8.0:
             level = "Excelente desempeno"
-        elif overall_score >= 0.6:
+        elif overall_score >= 6.0:
             level = "Buen desempeno"
-        elif overall_score >= 0.4:
+        elif overall_score >= 4.0:
             level = "Desempeno aceptable"
         else:
             level = "Necesita mejorar"
 
         return f"""{level} en la entrevista tecnica.
-Claridad de comunicacion: {breakdown.get('clarity', 0):.2f}/1.0.
-Precision tecnica: {breakdown.get('technical_accuracy', 0):.2f}/1.0.
+Claridad de comunicacion: {breakdown.get('clarity', 0):.1f}/10.
+Precision tecnica: {breakdown.get('technical_accuracy', 0):.1f}/10.
 Se recomienda practicar razonamiento en voz alta y profundizar conceptos tecnicos."""

@@ -566,87 +566,121 @@ class InstitutionalRiskManager:
         """
         Get dashboard metrics for risk management
 
+        FIX Cortez81: Updated to return structure expected by frontend RiskDashboard interface
+
         Args:
             teacher_id: Filter by teacher (optional)
             course_id: Filter by course (optional)
 
         Returns:
-            Dashboard metrics
+            Dashboard metrics matching frontend RiskDashboard interface
         """
-        # FIX Cortez68 (HIGH-006): Fixed broken query logic - use model directly, not repo.db.query()
-        from ..database.models import RiskAlertDB
-        from sqlalchemy import or_
+        from ..database.models import RiskAlertDB, RemediationPlanDB
+        from sqlalchemy import or_, desc
 
-        # Open alerts
+        # Base query for alerts
+        base_query = self.db.query(RiskAlertDB)
         if teacher_id:
-            # Get alerts assigned to teacher or unassigned
-            open_alerts_count = (
-                self.db.query(RiskAlertDB)
-                .filter(
-                    and_(
-                        RiskAlertDB.status == "open",
-                        or_(
-                            RiskAlertDB.assigned_to == teacher_id,
-                            RiskAlertDB.assigned_to.is_(None),
-                        ),
-                    )
+            base_query = base_query.filter(
+                or_(
+                    RiskAlertDB.assigned_to == teacher_id,
+                    RiskAlertDB.assigned_to.is_(None),
                 )
-                .count()
-            )
-        else:
-            open_alerts_count = (
-                self.db.query(RiskAlertDB).filter(RiskAlertDB.status == "open").count()
             )
 
-        # Critical alerts
-        critical_alerts_count = (
-            self.db.query(RiskAlertDB)
-            .filter(
-                RiskAlertDB.severity == "critical", RiskAlertDB.status.in_(["open", "acknowledged"])
-            )
-            .count()
-        )
+        # Summary counts
+        total_alerts = base_query.count()
+        pending_alerts = base_query.filter(RiskAlertDB.status == "pending").count()
+        critical_alerts = base_query.filter(RiskAlertDB.severity == "critical").count()
 
-        # Active remediation plans
-        from ..database.models import RemediationPlanDB
-
-        active_plans_query = self.db.query(RemediationPlanDB).filter(
-            RemediationPlanDB.status.in_(["pending", "in_progress"])
-        )
-        if teacher_id:
-            active_plans_query = active_plans_query.filter(
-                RemediationPlanDB.teacher_id == teacher_id
-            )
-        active_plans_count = active_plans_query.count()
-
-        # Resolution rate (last 30 days)
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        total_alerts_30d = (
-            self.db.query(RiskAlertDB)
-            .filter(RiskAlertDB.detected_at >= thirty_days_ago)
-            .count()
-        )
-        resolved_alerts_30d = (
-            self.db.query(RiskAlertDB)
-            .filter(
-                RiskAlertDB.detected_at >= thirty_days_ago,
+        # Resolved this week
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        resolved_this_week = (
+            base_query.filter(
                 RiskAlertDB.status == "resolved",
-            )
-            .count()
+                RiskAlertDB.resolved_at >= seven_days_ago,
+            ).count()
         )
-        resolution_rate = (
-            round(resolved_alerts_30d / total_alerts_30d * 100, 1)
-            if total_alerts_30d > 0
-            else 0
+
+        # Alerts by severity
+        alerts_by_severity = {
+            "critical": base_query.filter(RiskAlertDB.severity == "critical").count(),
+            "high": base_query.filter(RiskAlertDB.severity == "high").count(),
+            "medium": base_query.filter(RiskAlertDB.severity == "medium").count(),
+            "low": base_query.filter(RiskAlertDB.severity == "low").count(),
+        }
+
+        # Alerts by type
+        alert_types_query = (
+            self.db.query(RiskAlertDB.alert_type, func.count(RiskAlertDB.id))
+            .group_by(RiskAlertDB.alert_type)
+            .all()
         )
+        alerts_by_type = {alert_type: count for alert_type, count in alert_types_query}
+
+        # Recent alerts (last 10)
+        recent_alerts_db = (
+            base_query
+            .order_by(desc(RiskAlertDB.detected_at))
+            .limit(10)
+            .all()
+        )
+        recent_alerts = [
+            {
+                "id": alert.id,
+                "alert_type": alert.alert_type,
+                "severity": alert.severity,
+                "scope": alert.scope,
+                "title": alert.title,
+                "description": alert.description,
+                "affected_students": [alert.student_id] if alert.student_id else [],
+                "affected_activities": [alert.activity_id] if alert.activity_id else [],
+                "evidence": alert.evidence or [],
+                "recommendations": [],
+                "status": alert.status,
+                "assigned_to": alert.assigned_to,
+                "created_at": alert.detected_at.isoformat() if alert.detected_at else None,
+                "updated_at": alert.updated_at.isoformat() if alert.updated_at else None,
+            }
+            for alert in recent_alerts_db
+        ]
+
+        # Trends (last 7 days)
+        trends = []
+        for i in range(7):
+            day = datetime.now(timezone.utc) - timedelta(days=i)
+            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+
+            created = self.db.query(RiskAlertDB).filter(
+                RiskAlertDB.detected_at >= day_start,
+                RiskAlertDB.detected_at < day_end,
+            ).count()
+
+            resolved = self.db.query(RiskAlertDB).filter(
+                RiskAlertDB.resolved_at >= day_start,
+                RiskAlertDB.resolved_at < day_end,
+            ).count()
+
+            trends.append({
+                "date": day_start.strftime("%Y-%m-%d"),
+                "alerts_created": created,
+                "alerts_resolved": resolved,
+            })
+
+        trends.reverse()  # Oldest first
 
         return {
-            "open_alerts": open_alerts_count,
-            "critical_alerts": critical_alerts_count,
-            "active_remediation_plans": active_plans_count,
-            "resolution_rate_30d": resolution_rate,
-            "total_alerts_30d": total_alerts_30d,
-            "resolved_alerts_30d": resolved_alerts_30d,
+            "summary": {
+                "total_alerts": total_alerts,
+                "pending_alerts": pending_alerts,
+                "critical_alerts": critical_alerts,
+                "resolved_this_week": resolved_this_week,
+            },
+            "alerts_by_severity": alerts_by_severity,
+            "alerts_by_type": alerts_by_type,
+            "recent_alerts": recent_alerts,
+            "trends": trends,
         }
 
     # FIX Cortez70: Removed deprecated _check_* methods (lines 656-895)

@@ -83,7 +83,8 @@ class AssignAlertRequest(BaseModel):
 class AcknowledgeAlertRequest(BaseModel):
     """Request to acknowledge alert"""
 
-    teacher_id: str = Field(description="Teacher acknowledging")
+    # FIX Cortez81: Make teacher_id optional - get from current_user if not provided
+    teacher_id: Optional[str] = Field(None, description="Teacher acknowledging (optional, uses current user if not provided)")
 
 
 class ResolveAlertRequest(BaseModel):
@@ -277,22 +278,26 @@ async def get_alerts(
         # FIX Cortez33: Use page_size instead of limit
         alerts = query.limit(page_size).all()
 
+    # FIX Cortez81: Return structure matching frontend RiskAlert interface
     alerts_data = [
         {
-            "alert_id": a.id,
+            "id": a.id,
             "alert_type": a.alert_type,
             "severity": a.severity,
             "scope": a.scope,
             "title": a.title,
             "description": a.description,
-            "student_id": a.student_id,
-            "activity_id": a.activity_id,
-            "course_id": a.course_id,
-            "detected_at": a.detected_at.isoformat(),
+            "affected_students": [a.student_id] if a.student_id else [],
+            "affected_activities": [a.activity_id] if a.activity_id else [],
+            "evidence": a.evidence or [],
+            "recommendations": [],
             "status": a.status,
             "assigned_to": a.assigned_to,
-            "threshold_value": a.threshold_value,
-            "actual_value": a.actual_value,
+            "created_at": a.detected_at.isoformat() if a.detected_at else None,
+            "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+            "acknowledged_at": a.acknowledged_at.isoformat() if a.acknowledged_at else None,
+            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+            "resolution_notes": a.resolution_notes,
         }
         for a in alerts
     ]
@@ -394,7 +399,7 @@ async def assign_alert(
 )
 async def acknowledge_alert(
     alert_id: str,
-    request: AcknowledgeAlertRequest,
+    request: Optional[AcknowledgeAlertRequest] = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),  # FIX Cortez69 CRIT-API-002
 ) -> APIResponse[dict]:
@@ -402,14 +407,18 @@ async def acknowledge_alert(
     Acknowledge alert
 
     Changes status to 'acknowledged'.
+    FIX Cortez81: Use current_user if teacher_id not provided in request body
     """
     try:
+        # FIX Cortez81: Get teacher_id from request or current_user
+        teacher_id = (request.teacher_id if request and request.teacher_id else None) or current_user.get("user_id")
+
         manager = InstitutionalRiskManager(db)
-        result = manager.acknowledge_alert(alert_id, request.teacher_id)
+        result = manager.acknowledge_alert(alert_id, teacher_id)
 
         logger.info(
             "Alert acknowledged",
-            extra={"alert_id": alert_id, "teacher_id": request.teacher_id},
+            extra={"alert_id": alert_id, "teacher_id": teacher_id},
         )
 
         return APIResponse(

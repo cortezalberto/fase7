@@ -77,6 +77,9 @@ class ExerciseDB(Base, BaseModel):
         Index('idx_exercises_difficulty', 'difficulty'),
         Index('idx_exercises_language', 'language'),
         Index('idx_exercises_active', 'is_active'),
+        # FIX Cortez85 CRIT-ORM-001: Add index for deleted_at soft delete queries
+        Index('idx_exercises_deleted', 'deleted_at'),
+        Index('idx_exercises_active_deleted', 'is_active', 'deleted_at'),
         Index('idx_exercises_tags', 'tags', postgresql_using='gin'),  # GIN index for JSONB
         CheckConstraint("difficulty IN ('Easy', 'Medium', 'Hard')", name='check_exercise_difficulty'),
         CheckConstraint("language IN ('python', 'java')", name='check_exercise_language'),

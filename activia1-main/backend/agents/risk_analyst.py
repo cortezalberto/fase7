@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List  # Dict used for fingerprints in BE
 from datetime import datetime
 from bisect import bisect_right  # BE-OPT-001: For O(n log n) search
 from hashlib import md5  # BE-OPT-004: For fingerprinting
+import asyncio  # FIX Cortez73: For LLM timeout
 import json
 import re
 import logging  # FIX Cortez33: Add logging
@@ -31,6 +32,7 @@ DUPLICATE_COUNT_THRESHOLD = 2  # Max duplicates before triggering risk
 MIN_SAMPLE_SIZE_FOR_SIMILARITY = 5  # Minimum code submissions to check similarity
 LLM_ANALYSIS_TEMPERATURE = 0.3  # Low temperature for consistent risk analysis
 LLM_ANALYSIS_MAX_TOKENS = 600  # Max tokens for LLM risk analysis
+LLM_TIMEOUT_SECONDS = 30.0  # FIX Cortez73 (HIGH-003): Timeout for LLM calls
 
 # BE-OPT-002: Precomputed delegation signals as frozenset for O(1) lookup
 DELEGATION_SIGNALS = frozenset([
@@ -682,11 +684,15 @@ Identifica riesgos y patrones preocupantes."""
 
         try:
             # FIX Cortez53: Use named constants instead of magic numbers
-            response = await self.llm_provider.generate(
-                messages=messages,
-                temperature=LLM_ANALYSIS_TEMPERATURE,
-                max_tokens=LLM_ANALYSIS_MAX_TOKENS,
-                is_code_analysis=False  # Usar Flash para análisis de riesgos
+            # FIX Cortez73 (HIGH-003): Add timeout to prevent indefinite hangs
+            response = await asyncio.wait_for(
+                self.llm_provider.generate(
+                    messages=messages,
+                    temperature=LLM_ANALYSIS_TEMPERATURE,
+                    max_tokens=LLM_ANALYSIS_MAX_TOKENS,
+                    is_code_analysis=False  # Usar Flash para análisis de riesgos
+                ),
+                timeout=LLM_TIMEOUT_SECONDS
             )
 
             # Extraer JSON
@@ -695,6 +701,9 @@ Identifica riesgos y patrones preocupantes."""
                 return json.loads(json_match.group())
             return None
 
+        except asyncio.TimeoutError:
+            logger.warning("LLM risk analysis timed out after %ss", LLM_TIMEOUT_SECONDS)
+            return None
         except Exception as e:
             # FIX Cortez33: Use logger instead of print
             # FIX Cortez36: Use lazy logging formatting

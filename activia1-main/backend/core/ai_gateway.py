@@ -41,6 +41,8 @@ from .gateway.protocols import (
     EvaluationRepositoryProtocol,
     SequenceRepositoryProtocol,
 )
+# FIX Cortez84 CRIT-GW-001: Import centralized timeout configuration
+from ..api.config import LLM_TIMEOUT_SECONDS
 
 # Prometheus metrics instrumentation (HIGH-01)
 # Lazy import to avoid circular dependency with api.monitoring
@@ -165,6 +167,12 @@ class AIGateway:
         # FIX Cortez35: Task registry to prevent garbage collection of background tasks
         # This keeps a strong reference to running tasks so they don't get GC'd
         self._background_tasks: set = set()
+        # FIX Cortez73 (HIGH-002): Add asyncio.Lock to protect concurrent access to task registry
+        self._background_tasks_lock = asyncio.Lock()
+        # FIX Cortez74: Add threading.Lock for sync context add operations
+        self._background_tasks_sync_lock = threading.Lock()
+        # FIX Cortez74 (HIGH-MEM-001): Maximum background tasks to prevent unbounded growth
+        self._max_background_tasks = 1000
 
         # ✅ ELIMINADO: No más estado en memoria
         # ❌ self.trace_sequences: Dict[str, TraceSequence] = {}
@@ -630,10 +638,20 @@ class AIGateway:
 
         # FIX Cortez34: Add done callback to track task completion and log errors
         # FIX Cortez35: Also remove task from registry when done
+        # FIX Cortez73 (HIGH-002): Use lock to protect concurrent access
+        async def _remove_task_from_registry(task: asyncio.Task) -> None:
+            """Remove task from registry with lock protection."""
+            async with self._background_tasks_lock:
+                self._background_tasks.discard(task)
+
         def _task_done_callback(task: asyncio.Task) -> None:
             """Callback to log unhandled exceptions and cleanup task registry."""
-            # FIX Cortez35: Remove from registry to allow GC after completion
-            self._background_tasks.discard(task)
+            # FIX Cortez73: Schedule async removal to use lock
+            try:
+                asyncio.create_task(_remove_task_from_registry(task))
+            except RuntimeError:
+                # No running event loop, just discard directly (shutdown scenario)
+                self._background_tasks.discard(task)
 
             try:
                 exc = task.exception()
@@ -656,8 +674,23 @@ class AIGateway:
                 pass  # Task not done yet, ignore
 
         task = loop.create_task(_async_task(), name=f"risk_analysis_{session_id}")
-        # FIX Cortez35: Add to registry to prevent GC while running
-        self._background_tasks.add(task)
+        # FIX Cortez74: Use threading.Lock for sync context protection
+        # Also enforce maximum task limit to prevent unbounded memory growth
+        with self._background_tasks_sync_lock:
+            # FIX Cortez74 (HIGH-MEM-001): Enforce max task limit
+            if len(self._background_tasks) >= self._max_background_tasks:
+                # Remove oldest completed tasks
+                completed = [t for t in self._background_tasks if t.done()]
+                for t in completed:
+                    self._background_tasks.discard(t)
+                if len(self._background_tasks) >= self._max_background_tasks:
+                    logger.warning(
+                        "Background task registry full (%d tasks), "
+                        "new task may not be tracked",
+                        self._max_background_tasks,
+                        extra={"session_id": session_id, "flow_id": flow_id}
+                    )
+            self._background_tasks.add(task)
         task.add_done_callback(_task_done_callback)
 
     def _generate_blocked_response(
@@ -875,7 +908,7 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
             
             # Use Flash model for conversational tutoring (unless Pro is needed)
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -888,6 +921,9 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
             # Log LLM response metadata and preview
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             try:
                 usage = response.usage if hasattr(response, 'usage') else None
                 logger.info(
@@ -896,7 +932,7 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
                         "session_id": session_id,
                         "model": getattr(response, 'model', None),
                         "usage": usage,
-                        "response_preview": response.content[:300],
+                        "response_preview": content[:300] if content else "",
                         "flow_id": flow_id,
                         "duration_ms": llm_duration_ms
                     }
@@ -904,7 +940,7 @@ Sé breve y preciso. Máximo 4-5 preguntas por respuesta."""
             except Exception:
                 logger.debug("Could not log full LLM response metadata", exc_info=True)
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             # FIX Cortez36: Use lazy logging formatting
             logger.error("LLM generation failed: %s", e, exc_info=True)
@@ -1048,7 +1084,7 @@ Usa markdown para formato. Sé claro y conciso (máximo 200 palabras)."""
             use_pro = (model_decision == "pro")
 
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1060,6 +1096,9 @@ Usa markdown para formato. Sé claro y conciso (máximo 200 palabras)."""
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             try:
                 usage = response.usage if hasattr(response, 'usage') else None
                 logger.info(
@@ -1068,7 +1107,7 @@ Usa markdown para formato. Sé claro y conciso (máximo 200 palabras)."""
                         "session_id": session_id,
                         "model": getattr(response, 'model', None),
                         "usage": usage,
-                        "response_preview": response.content[:300],
+                        "response_preview": content[:300] if content else "",
                         "flow_id": flow_id,
                         "duration_ms": llm_duration_ms
                     }
@@ -1076,7 +1115,7 @@ Usa markdown para formato. Sé claro y conciso (máximo 200 palabras)."""
             except Exception:
                 logger.debug("Could not log full LLM response metadata", exc_info=True)
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             # FIX Cortez36: Use lazy logging formatting
             logger.error("LLM generation failed: %s", e, exc_info=True)
@@ -1150,7 +1189,7 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
             use_pro = (model_decision == "pro")
 
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1162,6 +1201,9 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             try:
                 usage = response.usage if hasattr(response, 'usage') else None
                 logger.info(
@@ -1170,7 +1212,7 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
                         "session_id": session_id,
                         "model": getattr(response, 'model', None),
                         "usage": usage,
-                        "response_preview": response.content[:300],
+                        "response_preview": content[:300] if content else "",
                         "flow_id": flow_id,
                         "duration_ms": llm_duration_ms
                     }
@@ -1178,7 +1220,7 @@ Cada pista debe acercar al estudiante a la solución conceptual sin dársela dir
             except Exception:
                 logger.debug("Could not log full LLM response metadata", exc_info=True)
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             # FIX Cortez36: Use lazy logging formatting
             logger.error("LLM generation failed: %s", e, exc_info=True)
@@ -1253,7 +1295,7 @@ Sé cálido, paciente y constructivo. Máximo 200 palabras."""
 
             llm_started_at = time.perf_counter()
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1264,6 +1306,9 @@ Sé cálido, paciente y constructivo. Máximo 200 palabras."""
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             logger.info(
                 "LLM response received (empathetic_support)",
                 extra={
@@ -1273,7 +1318,7 @@ Sé cálido, paciente y constructivo. Máximo 200 palabras."""
                 }
             )
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             logger.error("LLM generation failed (empathetic_support): %s", e, exc_info=True)
             return self._get_fallback_empathetic_support(prompt, flow_id=flow_id)
@@ -1339,7 +1384,7 @@ Máximo 250 palabras."""
 
             llm_started_at = time.perf_counter()
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1350,6 +1395,9 @@ Máximo 250 palabras."""
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             logger.info(
                 "LLM response received (metacognitive_guidance)",
                 extra={
@@ -1359,7 +1407,7 @@ Máximo 250 palabras."""
                 }
             )
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             logger.error("LLM generation failed (metacognitive_guidance): %s", e, exc_info=True)
             return self._get_fallback_metacognitive_guidance(prompt, flow_id=flow_id)
@@ -1433,7 +1481,7 @@ Máximo 300 palabras."""
 
             llm_started_at = time.perf_counter()
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1444,6 +1492,9 @@ Máximo 300 palabras."""
             )
             llm_duration_ms = round((time.perf_counter() - llm_started_at) * 1000, 2)
 
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+
             logger.info(
                 "LLM response received (example_based)",
                 extra={
@@ -1453,7 +1504,7 @@ Máximo 300 palabras."""
                 }
             )
 
-            return response.content.strip()
+            return content.strip()
         except Exception as e:
             logger.error("LLM generation failed (example_based): %s", e, exc_info=True)
             return self._get_fallback_example_based(prompt, flow_id=flow_id)
@@ -1513,7 +1564,7 @@ Sé amable y específico. Máximo 100 palabras."""
             )
 
             # FIX Cortez68 (HIGH-004): Add timeout to prevent indefinite hangs
-            LLM_TIMEOUT_SECONDS = 30.0
+            # FIX Cortez84 CRIT-GW-001: Use centralized LLM_TIMEOUT_SECONDS from config
             response = await asyncio.wait_for(
                 self.llm.generate(
                     messages,
@@ -1523,7 +1574,9 @@ Sé amable y específico. Máximo 100 palabras."""
                 timeout=LLM_TIMEOUT_SECONDS
             )
 
-            return response.content.strip()
+            # FIX Cortez83: Validate response.content before operations
+            content = getattr(response, 'content', None) or ""
+            return content.strip()
         except Exception as e:
             logger.error("LLM generation failed (clarification_request): %s", e, exc_info=True)
             return self._get_fallback_clarification_request(prompt, flow_id=flow_id)

@@ -13,6 +13,11 @@ from enum import Enum
 import logging
 import time
 
+# FIX Cortez73 (MED-004): Use centralized prompt injection detection
+from ...utils.prompt_security import detect_prompt_injection
+# FIX Cortez75: Load prompts from external files
+from ...prompts.prompt_loader import get_simulator_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +75,9 @@ class BaseSimulator(ABC):
         self.config = config or {}
         self.flow_id = self.config.get("flow_id")
 
+        # FIX Cortez75: Try to load prompts from external config files
+        self._load_external_config()
+
     @abstractmethod
     async def interact(
         self,
@@ -97,6 +105,45 @@ class BaseSimulator(ABC):
         Must be implemented by subclasses.
         """
         pass
+
+    def _load_external_config(self) -> None:
+        """
+        FIX Cortez75: Load prompts and config from external .md files.
+
+        Tries to load configuration from /prompts/simulator_{type}_config.md.
+        Falls back to class-level constants if file not found.
+        """
+        # Derive simulator type from class name
+        class_name = self.__class__.__name__
+        # ProductOwnerSimulator -> product_owner
+        simulator_type = ""
+        for i, char in enumerate(class_name.replace("Simulator", "")):
+            if char.isupper() and i > 0:
+                simulator_type += "_"
+            simulator_type += char.lower()
+
+        try:
+            config = get_simulator_config(simulator_type)
+            if config:
+                # Override class attributes with external config
+                if config.get("system_prompt"):
+                    self.SYSTEM_PROMPT = config["system_prompt"]
+                if config.get("competencies"):
+                    self.COMPETENCIES = config["competencies"]
+                if config.get("expects"):
+                    self.EXPECTS = config["expects"]
+                if config.get("fallback_message"):
+                    self._external_fallback = config["fallback_message"]
+                logger.debug(
+                    "Loaded external config for simulator: %s",
+                    simulator_type
+                )
+        except Exception as e:
+            # Log but don't fail - use class-level defaults
+            logger.debug(
+                "Using class-level config for %s: %s",
+                simulator_type, e
+            )
 
     async def _generate_llm_response(
         self,
@@ -404,8 +451,8 @@ class BaseSimulator(ABC):
                 "metadata": {"warning": "empty_input"}
             }
 
-        # FIX Cortez69 CRIT-AGENT-004: Check for prompt injection
-        if self._detect_prompt_injection(student_input):
+        # FIX Cortez69/73 (CRIT-AGENT-004/MED-004): Check for prompt injection (centralized)
+        if detect_prompt_injection(student_input):
             logger.warning(
                 "Prompt injection detected in simulator %s",
                 self.ROLE_NAME,
@@ -420,58 +467,5 @@ class BaseSimulator(ABC):
 
         return None
 
-    def _detect_prompt_injection(self, prompt: str) -> bool:
-        """
-        FIX Cortez69 CRIT-AGENT-004: Detect common prompt injection patterns.
-
-        Checks for patterns that attempt to:
-        - Override system instructions
-        - Change assistant persona
-        - Bypass content filters
-        - Access system prompts
-
-        Args:
-            prompt: Student's input text
-
-        Returns:
-            True if injection pattern detected, False otherwise
-        """
-        # Normalize for case-insensitive matching
-        lower_prompt = prompt.lower()
-
-        # Common injection patterns (same as tutor agent)
-        injection_patterns = [
-            # System instruction override attempts
-            "ignore previous instructions",
-            "ignore all previous",
-            "disregard previous",
-            "forget your instructions",
-            "override your programming",
-            "bypass your restrictions",
-            "ignore your training",
-            "ignore your rules",
-            # Persona manipulation
-            "you are now",
-            "pretend you are",
-            "act as if you",
-            "roleplay as",
-            "from now on you",
-            "you are no longer",
-            # Prompt leaking
-            "repeat your instructions",
-            "show me your prompt",
-            "reveal your system prompt",
-            "what are your instructions",
-            "show your configuration",
-            # Jailbreak attempts
-            "dan mode",
-            "developer mode",
-            "jailbreak",
-            "do anything now",
-        ]
-
-        for pattern in injection_patterns:
-            if pattern in lower_prompt:
-                return True
-
-        return False
+    # FIX Cortez73 (MED-004): Removed local _detect_prompt_injection method.
+    # Now using centralized detect_prompt_injection from utils.prompt_security

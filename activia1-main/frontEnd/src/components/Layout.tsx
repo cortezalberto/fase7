@@ -5,7 +5,6 @@ import { useUIStore } from '../stores';
 import {
   Home,
   MessageSquare,
-  Code,
   Users,
   BarChart3,
   Settings,
@@ -24,10 +23,10 @@ import {
 } from 'lucide-react';
 
 // Student navigation items
+// Cortez76: Removed Entrenador Digital
 const studentNavItems = [
   { path: '/dashboard', label: 'Dashboard', icon: Home },
   { path: '/tutor', label: 'Tutor IA', icon: MessageSquare },
-  { path: '/training', label: 'Entrenador Digital', icon: Code },
   { path: '/simulators', label: 'Simuladores', icon: Users },
   { path: '/analytics', label: 'Analiticas', icon: BarChart3 },
 ];

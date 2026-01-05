@@ -57,8 +57,15 @@ class TraceRepository:
             parent_trace_id=trace.parent_trace_id,
             agent_id=trace.agent_id,
         )
-        self.db.add(db_trace)
-        self.db.flush()
+        # FIX Cortez84 HIGH-REPO-001: Use commit instead of flush for persistence
+        try:
+            self.db.add(db_trace)
+            self.db.commit()
+            self.db.refresh(db_trace)
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to create trace: %s", str(e), exc_info=True)
+            raise
         return db_trace
 
     def get_by_id(self, trace_id: str) -> Optional[CognitiveTraceDB]:

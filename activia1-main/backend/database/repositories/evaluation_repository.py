@@ -80,9 +80,15 @@ class EvaluationRepository:
             git_analysis=git_analysis_dict,
             ai_dependency_metrics=ai_dependency_metrics,
         )
-        self.db.add(db_evaluation)
-        self.db.commit()
-        self.db.refresh(db_evaluation)
+        # FIX Cortez85 HIGH-REPO-001: Add try/except for proper error handling
+        try:
+            self.db.add(db_evaluation)
+            self.db.commit()
+            self.db.refresh(db_evaluation)
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to create evaluation: %s", str(e), exc_info=True)
+            raise
         return db_evaluation
 
     def get_by_id(self, evaluation_id: str) -> Optional[EvaluationDB]:

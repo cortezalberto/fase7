@@ -22,10 +22,10 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ...llm.interfaces import LLMMessage, LLMRole
+from ...llm.base import LLMMessage, LLMRole
 
 if TYPE_CHECKING:
-    from ...llm.interfaces import LLMProvider
+    from ...llm.base import LLMProvider
     from .protocols import TraceRepositoryProtocol
 
 logger = logging.getLogger(__name__)

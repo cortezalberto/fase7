@@ -68,7 +68,18 @@
       "Bash(backend/api/schemas/training.py )",
       "Bash(backend/api/routers/training/schemas.py )",
       "Bash(backend/database/repositories/base.py )",
-      "Bash(backend/database/repositories/activity_repository.py )"
+      "Bash(backend/database/repositories/activity_repository.py )",
+      "Bash(python -m backend.database.migrations.fix_subjects_basemodel:*)",
+      "Bash(start:*)",
+      "Bash(netstat:*)",
+      "Bash(python -m backend.scripts.create_test_users:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\")",
+      "Bash(tasklist:*)",
+      "Bash(python -m backend.database.migrations.add_resource_link_title:*)",
+      "Bash(docker ps:*)",
+      "Bash(python -m backend.database.migrations.add_traceability_improvements:*)",
+      "Bash(grep:*)"
     ]
   }
 }

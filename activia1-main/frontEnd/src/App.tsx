@@ -24,8 +24,7 @@ const EvaluatorPage = lazy(() => import('./pages/EvaluatorPage'));
 const RisksPage = lazy(() => import('./pages/RisksPage'));
 const GitAnalyticsPage = lazy(() => import('./pages/GitAnalyticsPage'));
 const TraceabilityPage = lazy(() => import('./pages/TraceabilityPage'));
-const TrainingPage = lazy(() => import('./pages/TrainingPage'));
-const TrainingExamPage = lazy(() => import('./pages/TrainingExamPage'));
+// Cortez76: Removed TrainingPage and TrainingExamPage (Entrenador Digital removed)
 
 // Teacher/Docente pages (HU-DOC-001 to HU-DOC-010)
 const TeacherDashboardPage = lazy(() => import('./pages/TeacherDashboardPage'));
@@ -33,6 +32,8 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const InstitutionalRisksPage = lazy(() => import('./pages/InstitutionalRisksPage'));
 const StudentMonitoringPage = lazy(() => import('./pages/StudentMonitoringPage'));
 const ActivityManagementPage = lazy(() => import('./pages/ActivityManagementPage'));
+const ContentManagementPage = lazy(() => import('./pages/ContentManagementPage'));
+const MateriasManagementPage = lazy(() => import('./pages/MateriasManagementPage'));
 
 // FE-OPT-004: Loading fallback component for lazy loaded pages
 const PageLoadingFallback = () => (
@@ -76,9 +77,7 @@ function App() {
               <Route path="risks" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><RisksPage /></Suspense></ErrorBoundaryWithNavigation>} />
               <Route path="git" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><GitAnalyticsPage /></Suspense></ErrorBoundaryWithNavigation>} />
               <Route path="traceability" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TraceabilityPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              {/* Entrenador Digital - Sistema jerárquico (Lenguaje → Lección → Ejercicios) */}
-              <Route path="training" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TrainingPage /></Suspense></ErrorBoundaryWithNavigation>} />
-              <Route path="training/exam" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><TrainingExamPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              {/* Cortez76: Removed training routes (Entrenador Digital removed) */}
 
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Route>
@@ -98,6 +97,8 @@ function App() {
               <Route path="risks" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><InstitutionalRisksPage /></Suspense></ErrorBoundaryWithNavigation>} />
               <Route path="monitoring" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><StudentMonitoringPage /></Suspense></ErrorBoundaryWithNavigation>} />
               <Route path="activities" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ActivityManagementPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="content" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><ContentManagementPage /></Suspense></ErrorBoundaryWithNavigation>} />
+              <Route path="materias" element={<ErrorBoundaryWithNavigation><Suspense fallback={<PageLoadingFallback />}><MateriasManagementPage /></Suspense></ErrorBoundaryWithNavigation>} />
             </Route>
           </Routes>
           </BrowserRouter>

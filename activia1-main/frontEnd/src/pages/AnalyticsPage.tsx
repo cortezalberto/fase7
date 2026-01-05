@@ -96,7 +96,11 @@ export default function AnalyticsPage() {
 
   // FE-OPT-002: Memoize weekly activity data
   const weeklyActivity = useMemo(() => calculateWeeklyActivity(), [calculateWeeklyActivity]);
-  const maxInteractions = useMemo(() => Math.max(...weeklyActivity.map(d => d.interactions), 1), [weeklyActivity]);
+  // FIX CRIT-001 Cortez77: Guardia contra array vacío que devuelve -Infinity
+  const maxInteractions = useMemo(() => {
+    if (weeklyActivity.length === 0) return 1;
+    return Math.max(...weeklyActivity.map(d => d.interactions), 1);
+  }, [weeklyActivity]);
 
   if (isLoading) {
     return (
@@ -289,7 +293,10 @@ export default function AnalyticsPage() {
                 <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Mejor día</p>
                 <p className="text-xs text-[var(--text-muted)]">
                   {/* FIX 2.7: Calculate from real data */}
-                  {weeklyActivity.reduce((best, day) => day.interactions > best.interactions ? day : best, weeklyActivity[0]).day} con {Math.max(...weeklyActivity.map(d => d.interactions))} interacciones
+                  {/* FIX HIGH-002 Cortez77: Verificar array vacío antes de acceder */}
+                  {weeklyActivity.length > 0
+                    ? `${weeklyActivity.reduce((best, day) => day.interactions > best.interactions ? day : best, weeklyActivity[0]).day} con ${Math.max(...weeklyActivity.map(d => d.interactions), 0)} interacciones`
+                    : 'Sin datos'}
                 </p>
               </div>
               <div className="p-4 rounded-xl bg-[var(--bg-card)]/50 backdrop-blur-sm">

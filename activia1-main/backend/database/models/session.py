@@ -30,6 +30,8 @@ class SessionDB(Base, BaseModel):
 
     student_id = Column(String(100), nullable=False, index=True)
     activity_id = Column(String(100), nullable=False, index=True)
+    # FIX Cortez82: Added course_id for filtering by course/subject
+    course_id = Column(String(100), nullable=True, index=True)
     mode = Column(String(50), nullable=False, default="tutor")  # AgentMode
 
     # Simulator type (when mode=SIMULATOR)
@@ -108,6 +110,12 @@ class SessionDB(Base, BaseModel):
     trace_sequences = relationship(
         "TraceSequenceDB", back_populates="session", cascade="all, delete-orphan"
     )
+    # FIX Cortez83: Add teacher_interventions relationship for bidirectional navigation
+    teacher_interventions = relationship(
+        "TeacherInterventionDB",
+        back_populates="session",
+        foreign_keys="TeacherInterventionDB.session_id"
+    )
 
     # Composite indexes for common query patterns
     __table_args__ = (
@@ -116,6 +124,9 @@ class SessionDB(Base, BaseModel):
         Index('idx_student_status', 'student_id', 'status'),
         Index('idx_session_status', 'status'),
         Index('idx_session_mode_status', 'mode', 'status'),
+        # FIX Cortez82: Index for course filtering
+        Index('idx_session_course', 'course_id'),
+        Index('idx_session_course_status', 'course_id', 'status'),
         CheckConstraint(
             "status IN ('active', 'completed', 'paused', 'aborted', 'abandoned')",
             name='ck_session_status_valid'

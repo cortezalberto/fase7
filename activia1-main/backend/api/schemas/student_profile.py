@@ -58,11 +58,17 @@ class StudentProfileUpdate(BaseModel):
         }
 
 
+# DEPRECATED Cortez75: Use StudentProfileResponse from sprint5_6.py instead
+# This schema is kept for backward compatibility but sprint5_6.py is canonical
 class StudentProfileResponse(BaseModel):
     """
     Response con información de un perfil de estudiante.
 
     FIX 2.8 Cortez8: Schema para ORM StudentProfileDB.
+
+    .. deprecated:: Cortez75
+        Use :class:`~backend.api.schemas.sprint5_6.StudentProfileResponse` instead.
+        This class is maintained for backward compatibility only.
     """
 
     id: str = Field(..., description="ID del perfil")
