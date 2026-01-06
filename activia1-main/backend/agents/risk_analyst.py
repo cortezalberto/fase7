@@ -6,17 +6,16 @@ Supervisa, detecta y clasifica riesgos cognitivos, éticos y epistémicos
 BE-OPT-001: Optimized O(n²) nested iteration to O(n log n) using bisect
 BE-OPT-004: Optimized duplicate detection with fingerprinting
 BE-CODE-003: Moved thresholds to constants
+Cortez93: Refactored to use LLMGenerationMixin for DRY LLM handling.
 """
 from typing import Optional, Dict, Any, List  # Dict used for fingerprints in BE-OPT-004
 from datetime import datetime
 from bisect import bisect_right  # BE-OPT-001: For O(n log n) search
 from hashlib import md5  # BE-OPT-004: For fingerprinting
-import asyncio  # FIX Cortez73: For LLM timeout
-import json
-import re
 import logging  # FIX Cortez33: Add logging
 
 from ..models.trace import CognitiveTrace, TraceSequence, InteractionType
+from .base_agent import LLMGenerationMixin, AgentConfig
 
 # FIX Cortez33: Use proper logging instead of print
 logger = logging.getLogger(__name__)
@@ -32,7 +31,8 @@ DUPLICATE_COUNT_THRESHOLD = 2  # Max duplicates before triggering risk
 MIN_SAMPLE_SIZE_FOR_SIMILARITY = 5  # Minimum code submissions to check similarity
 LLM_ANALYSIS_TEMPERATURE = 0.3  # Low temperature for consistent risk analysis
 LLM_ANALYSIS_MAX_TOKENS = 600  # Max tokens for LLM risk analysis
-LLM_TIMEOUT_SECONDS = 30.0  # FIX Cortez73 (HIGH-003): Timeout for LLM calls
+# FIX Cortez91 HIGH-A01: Use centralized LLM_TIMEOUT_SECONDS from constants (avoid duplicate definition)
+from ..core.constants import LLM_TIMEOUT_SECONDS
 
 # BE-OPT-002: Precomputed delegation signals as frozenset for O(1) lookup
 DELEGATION_SIGNALS = frozenset([
@@ -47,7 +47,7 @@ from ..models.risk import Risk, RiskType, RiskLevel, RiskDimension, RiskReport
 from ..llm.base import LLMMessage, LLMRole
 
 
-class AnalistaRiesgoAgent:
+class AnalistaRiesgoAgent(LLMGenerationMixin):
     """
     AR-IA: Analista de Riesgo Cognitivo y Ético
 
@@ -62,11 +62,28 @@ class AnalistaRiesgoAgent:
     - UNESCO (2021), OECD (2019), IEEE (2019)
     - ISO/IEC 23894:2023 (Risk Management in AI)
     - ISO/IEC 42001:2023 (AI Management System)
+
+    Cortez93: Refactored to extend LLMGenerationMixin for DRY LLM handling.
     """
 
-    def __init__(self, llm_provider=None, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, llm_provider=None, config: Optional[AgentConfig] = None):
+        """
+        Initialize the risk analyst agent.
+
+        Args:
+            llm_provider: LLM provider for advanced risk analysis
+            config: Agent configuration (AgentConfig or dict for backward compatibility)
+
+        Cortez93: Now uses AgentConfig typed dataclass for configuration.
+        """
         self.llm_provider = llm_provider
-        self.config = config or {}
+        # Support both AgentConfig and dict for backward compatibility
+        if isinstance(config, AgentConfig):
+            self._agent_config = config
+            self.config = {}  # Legacy config dict for thresholds
+        else:
+            self._agent_config = AgentConfig.from_dict(config)
+            self.config = config or {}
 
         # Umbrales de riesgo configurables
         # BE-CODE-003: Use module constants as defaults
@@ -645,7 +662,12 @@ class AnalistaRiesgoAgent:
         return with_justification / len(traces)
 
     async def _analyze_risks_with_llm(self, trace_sequence: TraceSequence) -> Optional[Dict[str, Any]]:
-        """Usa LLM para análisis avanzado de patrones de riesgo"""
+        """
+        Usa LLM para análisis avanzado de patrones de riesgo.
+
+        Cortez93: Refactored to use LLMGenerationMixin._generate_with_timeout()
+        for consistent timeout handling and logging.
+        """
         if not self.llm_provider:
             return None
 
@@ -653,12 +675,12 @@ class AnalistaRiesgoAgent:
         traces_summary = self._build_traces_summary_for_risk(trace_sequence.traces[:15])
 
         system_prompt = """Eres un experto en análisis de riesgos cognitivos y éticos en educación.
-        
+
 Analiza los patrones de comportamiento del estudiante e identifica:
         1. Riesgos cognitivos (delegación, dependencia excesiva)
         2. Riesgos éticos (posible plagio, integridad académica)
         3. Riesgos epistémicos (aceptación acrítica)
-        
+
         Responde SOLO con JSON en este formato:
         {
             "risks_detected": [{"type": "cognitive|ethical|epistemic", "severity": "low|medium|high", "description": "...", "evidence": "..."}],
@@ -666,7 +688,7 @@ Analiza los patrones de comportamiento del estudiante e identifica:
             "recommendations": ["recomendación1", "recomendación2"]
         }"""
 
-        user_prompt = f"""Analiza esta sesión del estudiante:
+        user_input = f"""Analiza esta sesión del estudiante:
 
 Estudiante: {trace_sequence.student_id}
 Actividad: {trace_sequence.activity_id}
@@ -677,38 +699,28 @@ Trazas:
 
 Identifica riesgos y patrones preocupantes."""
 
-        messages = [
-            LLMMessage(role=LLMRole.SYSTEM, content=system_prompt),
-            LLMMessage(role=LLMRole.USER, content=user_prompt)
-        ]
+        # Cortez93: Use _build_conversation_messages from LLMGenerationMixin
+        messages = self._build_conversation_messages(
+            system_prompt=system_prompt,
+            user_input=user_input
+        )
 
-        try:
-            # FIX Cortez53: Use named constants instead of magic numbers
-            # FIX Cortez73 (HIGH-003): Add timeout to prevent indefinite hangs
-            response = await asyncio.wait_for(
-                self.llm_provider.generate(
-                    messages=messages,
-                    temperature=LLM_ANALYSIS_TEMPERATURE,
-                    max_tokens=LLM_ANALYSIS_MAX_TOKENS,
-                    is_code_analysis=False  # Usar Flash para análisis de riesgos
-                ),
-                timeout=LLM_TIMEOUT_SECONDS
-            )
+        # Cortez93: Use _generate_with_timeout from LLMGenerationMixin
+        response = await self._generate_with_timeout(
+            messages,
+            temperature=LLM_ANALYSIS_TEMPERATURE,
+            max_tokens=LLM_ANALYSIS_MAX_TOKENS,
+            is_code_analysis=False,  # Usar Flash para análisis de riesgos
+            context_label="risk_analyst"
+        )
 
-            # Extraer JSON
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
+        if response is None:
+            # Timeout or error - already logged by mixin
             return None
 
-        except asyncio.TimeoutError:
-            logger.warning("LLM risk analysis timed out after %ss", LLM_TIMEOUT_SECONDS)
-            return None
-        except Exception as e:
-            # FIX Cortez33: Use logger instead of print
-            # FIX Cortez36: Use lazy logging formatting
-            logger.error("Error en análisis LLM de riesgos: %s", e, exc_info=True)
-            return None
+        # Cortez88: Usar extraccion JSON robusta en lugar de regex fragil
+        from ..utils.json_extraction import extract_json_from_text
+        return extract_json_from_text(response.content)
 
     def _build_traces_summary_for_risk(self, traces: List[CognitiveTrace]) -> str:
         """Construye resumen de trazas para análisis de riesgos"""

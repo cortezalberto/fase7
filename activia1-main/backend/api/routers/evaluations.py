@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 # FIX Cortez53: Removed HTTPException, status - using custom exceptions
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 import re
@@ -119,7 +119,8 @@ class ProcessEvaluation(BaseModel):
     
     # Evidencia general
     overall_feedback: str
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    # FIX Cortez91 MED-01: Use timezone-aware datetime.now(timezone.utc) instead of deprecated utcnow()
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============================================================================

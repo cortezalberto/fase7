@@ -124,6 +124,8 @@ MIN_PAGE_SIZE = 1
 # LLM Configuration
 # =============================================================================
 
+import os
+
 # Token limits
 DEFAULT_MAX_TOKENS = 2000
 """Número máximo de tokens por defecto para respuestas LLM"""
@@ -140,6 +142,45 @@ MAX_TEMPERATURE = 2.0
 
 DEFAULT_TEMPERATURE = 0.7
 """Temperatura por defecto (balance entre creatividad y coherencia)"""
+
+# FIX Cortez88 HIGH-TIMEOUT-001: Centralize LLM timeout in constants to avoid circular imports
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30.0"))
+"""Timeout for LLM API calls (prevents indefinite hangs)"""
+
+# =============================================================================
+# RAG Configuration (Cortez92)
+# =============================================================================
+
+RAG_CONFIDENCE_HIGH = 0.8
+"""Umbral para confianza alta en RAG (documentos muy relevantes)"""
+
+RAG_CONFIDENCE_MEDIUM = 0.6
+"""Umbral para confianza media en RAG (documentos relacionados)"""
+
+RAG_CONFIDENCE_LOW = 0.4
+"""Umbral para confianza baja en RAG (documentos tangenciales)"""
+
+RAG_DEFAULT_MAX_DOCUMENTS = int(os.getenv("RAG_MAX_DOCUMENTS", "3"))
+"""Máximo de documentos a incluir en contexto RAG"""
+
+RAG_DEFAULT_MIN_CONFIDENCE = float(os.getenv("RAG_MIN_CONFIDENCE", "0.5"))
+"""Confianza mínima para usar contexto RAG"""
+
+RAG_CONTENT_TRUNCATE_LENGTH = 1000
+"""Longitud máxima de contenido por documento en contexto RAG (caracteres)"""
+
+# =============================================================================
+# WebSocket Configuration (Cortez92)
+# =============================================================================
+
+WEBSOCKET_KEEPALIVE_TIMEOUT_SECONDS = 60.0
+"""Timeout para keepalive de WebSocket (segundos)"""
+
+WEBSOCKET_AUTH_CODE_MISSING_TOKEN = 4001
+"""Código de cierre WebSocket para token faltante"""
+
+WEBSOCKET_AUTH_CODE_INVALID_TOKEN = 4002
+"""Código de cierre WebSocket para token inválido"""
 
 # =============================================================================
 # Session Configuration

@@ -114,7 +114,8 @@ class UnidadRepository(BaseRepository):
             UnidadDB.deleted_at.is_(None)
         )
         if solo_publicadas:
-            stmt = stmt.where(UnidadDB.esta_publicada == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            stmt = stmt.where(UnidadDB.esta_publicada.is_(True))
         if load_apuntes:
             stmt = stmt.options(selectinload(UnidadDB.apuntes))
         if load_archivos:
@@ -272,7 +273,8 @@ class UnidadRepository(BaseRepository):
             ApuntesDB.deleted_at.is_(None)
         )
         if solo_publicados:
-            stmt = stmt.where(ApuntesDB.esta_publicado == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            stmt = stmt.where(ApuntesDB.esta_publicado.is_(True))
         if load_archivos:
             stmt = stmt.options(selectinload(ApuntesDB.archivos_adjuntos))
         stmt = stmt.order_by(ApuntesDB.orden.asc())

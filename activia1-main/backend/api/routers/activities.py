@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...database.repositories import ActivityRepository
 from ...database.models import ActivityDB
-from ..deps import get_db, require_teacher_role
+from ..deps import get_db, require_teacher_role, get_current_user
 from ..schemas.activity import (
     ActivityCreate,
     ActivityUpdate,
@@ -142,6 +142,7 @@ async def list_activities(
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE, description="Elementos por página"),
     activity_repo: ActivityRepository = Depends(get_activity_repository),
     db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R09: Add authentication
 ) -> PaginatedResponse[ActivityResponse]:
     """
     Lista actividades con filtros y paginación.
@@ -218,6 +219,7 @@ async def list_activities(
 async def get_activity(
     activity_id: str,
     activity_repo: ActivityRepository = Depends(get_activity_repository),
+    _current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R10: Add authentication
 ) -> APIResponse[ActivityResponse]:
     """
     Obtiene detalles completos de una actividad.

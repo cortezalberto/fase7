@@ -19,7 +19,7 @@ Background Tasks for Risk Analysis:
 - This would allow immediate response to user while analysis runs in background
 - See: https://fastapi.tiangolo.com/tutorial/background-tasks/
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from datetime import datetime
 import uuid
 import logging
@@ -33,6 +33,10 @@ from ..models.evaluation import EvaluationReport
 from ..llm import LLMProviderFactory, LLMProvider, LLMMessage, LLMRole
 from .cache import LLMResponseCache
 from ..agents.governance import GobernanzaAgent
+
+# Cortez87: Import RAG types for type checking only (avoid circular import)
+if TYPE_CHECKING:
+    from ..agents.knowledge_rag import KnowledgeRAGAgent, RAGResult
 # FIX Cortez68 (HIGH-005): Import protocols from gateway module instead of duplicating
 from .gateway.protocols import (
     SessionRepositoryProtocol,
@@ -41,35 +45,40 @@ from .gateway.protocols import (
     EvaluationRepositoryProtocol,
     SequenceRepositoryProtocol,
 )
-# FIX Cortez84 CRIT-GW-001: Import centralized timeout configuration
-from ..api.config import LLM_TIMEOUT_SECONDS
+# FIX Cortez91 CRIT-G01: Use centralized LLM_TIMEOUT_SECONDS from constants
+# This avoids duplicate definitions (was also defined here via os.getenv)
+from .constants import LLM_TIMEOUT_SECONDS
 
 # Prometheus metrics instrumentation (HIGH-01)
 # Lazy import to avoid circular dependency with api.monitoring
-# FIXED: Added thread safety with double-checked locking pattern
+# FIXED (Cortez92 HIGH-006): Changed from double-checked locking to lock-first pattern
+# Python's GIL doesn't guarantee atomicity in condition evaluation
 import threading
+from typing import Union
 
-_metrics_module = None
+_metrics_module: Union[None, bool, Any] = None
 _metrics_lock = threading.Lock()
 
 def _get_metrics():
     """
     Lazy load metrics module to avoid circular imports.
 
-    Thread-safe implementation using double-checked locking pattern.
-    This prevents race conditions when multiple threads try to initialize
-    the metrics module simultaneously.
+    HIGH-006 FIX (Cortez92): Changed to lock-first pattern.
+    Python's GIL doesn't guarantee atomicity in condition evaluation,
+    so double-checked locking can have subtle race conditions.
+    Lock-first is safer and the overhead is minimal (one-time init).
     """
     global _metrics_module
-    if _metrics_module is None:
-        with _metrics_lock:
-            # Double-check inside lock to avoid race condition
-            if _metrics_module is None:
-                try:
-                    from ..api.monitoring import metrics as m
-                    _metrics_module = m
-                except ImportError:
-                    _metrics_module = False  # Mark as unavailable
+
+    # Lock-first pattern: acquire lock before ANY check
+    with _metrics_lock:
+        if _metrics_module is None:
+            try:
+                from ..api.monitoring import metrics as m
+                _metrics_module = m
+            except ImportError:
+                _metrics_module = False  # Mark as unavailable
+
     return _metrics_module if _metrics_module else None
 
 logger = logging.getLogger(__name__)
@@ -115,7 +124,9 @@ class AIGateway:
         evaluation_repo: Optional[EvaluationRepositoryProtocol] = None,
         sequence_repo: Optional[SequenceRepositoryProtocol] = None,
         cache: Optional[LLMResponseCache] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        # Cortez87: RAG agent for context enrichment
+        knowledge_rag: Optional["KnowledgeRAGAgent"] = None,
     ):
         """
         Inicializa el AI Gateway con Dependency Injection completa
@@ -130,6 +141,7 @@ class AIGateway:
             sequence_repo: Repositorio de secuencias (inyectado)
             cache: Cache de respuestas LLM (inyectado, opcional)
             config: Configuración adicional
+            knowledge_rag: Agente RAG para enriquecimiento de contexto (Cortez87, opcional)
 
         Note:
             Si no se inyectan dependencias, se crean con valores por defecto
@@ -163,6 +175,10 @@ class AIGateway:
 
         # Cache LLM (opcional, para reducir costos)
         self.cache = cache
+
+        # Cortez87: RAG agent for context enrichment (optional)
+        # If not injected, create via factory (respects RAG_ENABLED env var)
+        self.knowledge_rag = knowledge_rag
 
         # FIX Cortez35: Task registry to prevent garbage collection of background tasks
         # This keeps a strong reference to running tasks so they don't get GC'd
@@ -442,6 +458,60 @@ class AIGateway:
             }
         )
 
+        # Cortez87: RAG Context Enrichment (if available)
+        # Enrich prompt with relevant knowledge before sending to agent
+        rag_result = None  # Type: Optional[RAGResult] - using Any to avoid circular import
+        enriched_prompt = prompt
+
+        if self.knowledge_rag is not None:
+            try:
+                # Build RAG filters from session context
+                rag_filters = {}
+                if context:
+                    rag_filters["unit"] = context.get("current_unit")
+                    rag_filters["materia_code"] = context.get("materia_code")
+                    rag_filters["difficulty"] = context.get("student_level")
+
+                # Retrieve relevant documents
+                rag_result = await self.knowledge_rag.retrieve(
+                    query=prompt,
+                    filters={k: v for k, v in rag_filters.items() if v}  # Remove None values
+                )
+
+                # Enrich prompt if RAG found sufficient context
+                if rag_result.is_sufficient:
+                    enriched_prompt = self.knowledge_rag.enrich_prompt(prompt, rag_result)
+                    logger.info(
+                        "RAG context enrichment applied",
+                        extra={
+                            "flow_id": flow_id,
+                            "session_id": session_id,
+                            "documents_found": rag_result.document_count,
+                            "confidence": rag_result.confidence.value,
+                            "avg_similarity": round(rag_result.avg_similarity, 3)
+                        }
+                    )
+                else:
+                    logger.debug(
+                        "RAG context insufficient, using original prompt",
+                        extra={
+                            "flow_id": flow_id,
+                            "session_id": session_id,
+                            "documents_found": rag_result.document_count,
+                            "confidence": rag_result.confidence.value
+                        }
+                    )
+            except Exception as e:
+                # RAG failure should not break the main flow
+                logger.warning(
+                    "RAG retrieval failed, continuing without enrichment",
+                    extra={
+                        "flow_id": flow_id,
+                        "session_id": session_id,
+                        "error": str(e)
+                    }
+                )
+
         # C5: Orquestación - delegar al submodelo apropiado
         logger.info(
             "Orchestrating to agent",
@@ -455,13 +525,15 @@ class AIGateway:
 
         agent_started_at = time.perf_counter()
         if current_mode == AgentMode.TUTOR:
+            # Cortez87: Use enriched_prompt (with RAG context if available)
             response = await self._process_tutor_mode(
-                session_id, prompt, strategy, classification, flow_id=flow_id
+                session_id, enriched_prompt, strategy, classification, flow_id=flow_id
             )
         elif current_mode == AgentMode.SIMULATOR:
             # FIX Cortez22 DEFECTO 1.1: Add await for async method
+            # Cortez87: Use enriched_prompt (with RAG context if available)
             response = await self._process_simulator_mode(
-                session_id, prompt, strategy, classification, flow_id=flow_id
+                session_id, enriched_prompt, strategy, classification, flow_id=flow_id
             )
         elif current_mode == AgentMode.EVALUATOR:
             # FIX Cortez22 DEFECTO 1.1: Add await for async method

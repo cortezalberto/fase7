@@ -17,9 +17,12 @@ import json
 import csv
 import io
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Depends, Query
+
+# FIX Cortez91 LOW-03: Type-safe export format validation
+ExportFormat = Literal["json", "csv"]
 
 from backend.core.constants import utc_now
 from fastapi.responses import StreamingResponse
@@ -59,7 +62,7 @@ from ..exceptions import (
     SessionNotFoundError,
     NoSessionsFoundError,
 )
-from ..deps import require_admin_role
+from ..deps import require_admin_role, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -547,7 +550,9 @@ def _convert_to_csv(data: Dict[str, List[Dict]]) -> str:
 )
 async def export_session_data(
     session_id: str,
-    format: str = Query(default="json", description="Export format: json or csv"),
+    # FIX Cortez91 LOW-03: Use Literal type for format validation
+    format: ExportFormat = Query(default="json", description="Export format: json or csv"),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez91 CRIT-R01: Add authentication
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
     """
@@ -624,7 +629,9 @@ async def export_session_data(
 )
 async def export_activity_data(
     activity_id: str,
-    format: str = Query(default="json", description="Export format: json or csv"),
+    # FIX Cortez91 LOW-03: Use Literal type for format validation
+    format: ExportFormat = Query(default="json", description="Export format: json or csv"),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez91 CRIT-R01: Add authentication
     db: Session = Depends(get_db_session),
 ) -> StreamingResponse:
     """

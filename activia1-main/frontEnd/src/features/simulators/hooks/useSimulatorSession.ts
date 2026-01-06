@@ -2,6 +2,7 @@
  * useSimulatorSession Hook - Simulator session management
  *
  * Cortez43: Extracted from SimulatorsPage.tsx (514 lines)
+ * Cortez92: Updated to use ISO-8601 string timestamps for ChatMessage
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -102,7 +103,7 @@ export function useSimulatorSession({
             content:
               welcomeMessages[simulator.type] ||
               '¡Hola! Estoy listo para comenzar la simulación.',
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
           },
         ]);
       } catch (error) {
@@ -121,7 +122,7 @@ export function useSimulatorSession({
       id: Date.now().toString(),
       role: 'user',
       content: input.trim(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -150,7 +151,7 @@ export function useSimulatorSession({
         id: Date.now().toString() + '-ai',
         role: 'assistant',
         content: result.response,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         metadata: {
           cognitive_state: 'simulator',
         },
@@ -166,7 +167,7 @@ export function useSimulatorSession({
           id: 'error',
           role: 'assistant',
           content: 'Lo siento, ocurrió un error. Por favor, intenta de nuevo.',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         },
       ]);
     } finally {

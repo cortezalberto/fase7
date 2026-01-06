@@ -8,8 +8,9 @@ Provides:
 - TraceSequenceDB: Database model for trace sequences
 """
 from sqlalchemy import (
-    Column, String, Text, Float, Integer, ForeignKey, JSON, Index, CheckConstraint
+    Column, String, Text, Float, Integer, ForeignKey, Index, CheckConstraint
 )
+# FIX Cortez91: Removed JSON import - using JSONBCompatible for all JSON columns
 from sqlalchemy.orm import relationship
 
 from .base import Base, BaseModel, JSONBCompatible
@@ -45,14 +46,15 @@ class CognitiveTraceDB(Base, BaseModel):
 
     # Content
     content = Column(Text, nullable=False)
-    context = Column(JSON, default=dict)
-    trace_metadata = Column(JSON, default=dict)
+    # FIX Cortez91 CRIT-M01/M02: Changed JSON to JSONBCompatible for SQLite test compatibility
+    context = Column(JSONBCompatible, default=dict)
+    trace_metadata = Column(JSONBCompatible, default=dict)
 
     # N4 Cognitive analysis
     cognitive_state = Column(String(50), nullable=True)
     cognitive_intent = Column(String(200), nullable=True)
     decision_justification = Column(Text, nullable=True)
-    alternatives_considered = Column(JSON, default=list)
+    alternatives_considered = Column(JSONBCompatible, default=list)
     strategy_type = Column(String(100), nullable=True)
 
     # AI involvement (0.0 to 1.0)
@@ -153,8 +155,9 @@ class TraceSequenceDB(Base, BaseModel):
     # FIX Cortez69 CRIT-DB-001: Changed from Float to Integer (trace count is always integer)
     total_traces = Column(Integer, default=0)
     avg_ai_involvement = Column(Float, default=0.0)
-    detected_risks = Column(JSON, default=list)
-    competencies = Column(JSON, default=dict)
+    # FIX Cortez91: Changed JSON to JSONBCompatible for SQLite test compatibility
+    detected_risks = Column(JSONBCompatible, default=list)
+    competencies = Column(JSONBCompatible, default=dict)
 
     # N4 Summary dimensions
     semantic_summary = Column(JSONBCompatible, default=dict, nullable=True)

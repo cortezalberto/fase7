@@ -16,7 +16,10 @@ from ...llm.factory import LLMProviderFactory
 from ...database.repositories import SessionRepository, TraceRepository
 from ..deps import get_session_repository, get_trace_repository, get_current_user, get_llm_provider
 from ..schemas.common import APIResponse
-from fastapi import Depends
+# FIX Cortez91 LOW-01: Removed duplicate Depends import (already imported on line 8)
+
+# FIX Cortez91 LOW-02: Magic number extracted to constant
+MAX_INTERACTIONS_FOR_ANALYSIS = 10
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +158,8 @@ async def analyze_risks_5d(
     # Preparar contexto detallado para análisis con Mistral AI
     # Extraer prompts del usuario y respuestas de la IA
     conversation_history = []
-    for i, interaction in enumerate(interactions[-10:], 1):  # Últimas 10 interacciones
+    # FIX Cortez91 LOW-02: Use constant instead of magic number
+    for i, interaction in enumerate(interactions[-MAX_INTERACTIONS_FOR_ANALYSIS:], 1):
         # Extraer el prompt del usuario (puede estar en content o metadata)
         user_prompt = ""
         ai_response = ""

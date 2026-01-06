@@ -1,10 +1,18 @@
 /**
  * Layout principal de la aplicación
  * FIX Cortez31: Migrated to Zustand for state management
+ * Cortez92: Use granular selectors to prevent unnecessary re-renders
  */
 import React from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { useUIStore, useSessionStore } from '@/stores';
+// Cortez92: Use granular selectors to prevent unnecessary re-renders
+import {
+  useTheme,
+  useSidebarCollapsed,
+  useToggleTheme,
+  useToggleSidebar,
+  useCurrentSession,
+} from '@/stores';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROUTES } from '@/core/config/routes.config';
 import { wsService } from '@/core/websocket/WebSocketService';
@@ -13,8 +21,12 @@ import './MainLayout.css';
 // FIX Cortez48: Use function component pattern instead of React.FC
 export function MainLayout() {
   // FIX Cortez31: Use Zustand stores instead of AppContext
-  const { theme, sidebarCollapsed, toggleTheme, toggleSidebar } = useUIStore();
-  const currentSession = useSessionStore((state) => state.currentSession);
+  // Cortez92: Use granular selectors - prevents re-render when unrelated store values change
+  const theme = useTheme();
+  const sidebarCollapsed = useSidebarCollapsed();
+  const toggleTheme = useToggleTheme();
+  const toggleSidebar = useToggleSidebar();
+  const currentSession = useCurrentSession();
   const { user, logout } = useAuth();
   const [wsStatus, setWsStatus] = React.useState(wsService.getState());
 

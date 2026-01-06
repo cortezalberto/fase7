@@ -2,6 +2,7 @@
  * Trace Types - Cognitive trace and traceability interfaces
  *
  * Cortez43: Extracted from monolithic api.types.ts (893 lines)
+ * Cortez92: Improved type specificity for TraceNode.data
  */
 
 import { TraceLevel } from './enums';
@@ -103,11 +104,47 @@ export interface CognitivePath {
 
 // ==================== TRACEABILITY ====================
 
+/**
+ * Cortez92: Type-safe data payloads for each trace level
+ */
+export interface TraceNodeDataN1 {
+  raw_input?: string;
+  raw_output?: string;
+  interaction_type?: string;
+}
+
+export interface TraceNodeDataN2 {
+  preprocessed_input?: string;
+  detected_intent?: string;
+  context_extracted?: Record<string, unknown>;
+}
+
+export interface TraceNodeDataN3 {
+  llm_response?: string;
+  agent_used?: string;
+  cognitive_analysis?: Record<string, unknown>;
+}
+
+export interface TraceNodeDataN4 {
+  synthesized_insight?: string;
+  risk_assessment?: Record<string, unknown>;
+  recommendations?: string[];
+}
+
+/** Union type for all trace node data variants */
+export type TraceNodeData =
+  | TraceNodeDataN1
+  | TraceNodeDataN2
+  | TraceNodeDataN3
+  | TraceNodeDataN4
+  | Record<string, unknown>;  // Fallback for backwards compatibility
+
 export interface TraceNode {
   id: string;
   level: 'N1' | 'N2' | 'N3' | 'N4';
   timestamp: string;
-  data: unknown;
+  /** Cortez92: Changed from unknown to TraceNodeData for better type safety */
+  data: TraceNodeData;
   metadata: {
     processing_time_ms?: number;
     tokens_used?: number;

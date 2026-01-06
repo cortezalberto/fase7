@@ -4,9 +4,10 @@
  * Soporta drag & drop y selección tradicional.
  *
  * Cortez72: Implementación desde metodologia.md
+ * Cortez92: Fixed setTimeout memory leak with useRef cleanup
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, X, FileText, Image, Loader2, Check, AlertCircle } from 'lucide-react';
 import { filesService } from '@/services/api/files.service';
 
@@ -50,6 +51,17 @@ export function FileUploader({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cortez92: Track timeouts to prevent memory leaks on unmount
+  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current.clear();
+    };
+  }, []);
 
   const validateFile = useCallback((file: File): string | null => {
     if (!acceptedTypes.includes(file.type)) {
@@ -108,10 +120,12 @@ export function FileUploader({
         url: result.url,
       });
 
-      // Remover de la lista después de 2 segundos
-      setTimeout(() => {
+      // Cortez92: Track timeout for cleanup on unmount
+      const timeoutId = setTimeout(() => {
         setUploadingFiles(prev => prev.filter(uf => uf.file !== file));
+        timeoutsRef.current.delete(timeoutId);
       }, 2000);
+      timeoutsRef.current.add(timeoutId);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Error al subir archivo';

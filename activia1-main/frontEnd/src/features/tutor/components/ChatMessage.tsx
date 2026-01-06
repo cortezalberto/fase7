@@ -2,6 +2,7 @@
  * ChatMessageBubble Component - Individual chat message display
  *
  * Cortez43: Extracted from TutorPage.tsx (605 lines)
+ * Cortez92: Updated to handle ISO-8601 string timestamps
  */
 
 import ReactMarkdown from 'react-markdown';
@@ -54,7 +55,7 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
         <div
           className={`mt-2 text-xs ${isUser ? 'text-white/60' : 'text-[var(--text-muted)]'}`}
         >
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </div>
     </div>

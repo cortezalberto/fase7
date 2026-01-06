@@ -3,6 +3,12 @@ CourseReportGenerator - SPRINT 5 HU-DOC-009
 
 Servicio para generar reportes institucionales a nivel de curso/cohorte.
 
+Cortez89: Refactored to use extracted aggregators (P2 architecture improvement).
+- Data aggregation delegated to CohortDataAggregator and RiskDataAggregator
+- Recommendations delegated to InstitutionalRecommendationEngine
+- This class now focuses on orchestration only
+- Original aggregation methods retained for backward compatibility
+
 Funcionalidades:
 - Agregar datos de múltiples estudiantes en un período
 - Generar reportes de:
@@ -16,10 +22,9 @@ Audiencia: Docentes, coordinadores, administradores educativos
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from uuid import uuid4
 import json
 
 from sqlalchemy.orm import Session
@@ -30,36 +35,56 @@ from ..database.models import (
     CognitiveTraceDB,
     RiskDB,
     EvaluationDB,
-    StudentProfileDB,
 )
 from ..database.repositories import CourseReportRepository
-from ..models.risk import RiskLevel, RiskDimension
+# Cortez89: Import extracted aggregators
+from .data_aggregators import CohortDataAggregator, RiskDataAggregator
+from .recommendation_engine import InstitutionalRecommendationEngine
 
 logger = logging.getLogger(__name__)
 
 
 class CourseReportGenerator:
     """
-    Generador de reportes institucionales a nivel curso/cohorte
+    Generador de reportes institucionales a nivel curso/cohorte.
 
-    Agrega datos de múltiples estudiantes y genera insights para docentes
-    y administradores educativos.
+    Cortez89: Refactored to use composition with extracted services:
+    - CohortDataAggregator: Handles all cohort-level data aggregation
+    - RiskDataAggregator: Handles all risk-related aggregation
+    - InstitutionalRecommendationEngine: Generates recommendations
+
+    This class now acts as an orchestrator, coordinating the services
+    and persisting reports to the database.
+
+    Original private methods are retained for backward compatibility.
     """
 
     def __init__(
         self,
         db_session: Session,
         report_repository: Optional[CourseReportRepository] = None,
+        # Cortez89: Optional dependency injection for testing
+        cohort_aggregator: Optional[CohortDataAggregator] = None,
+        risk_aggregator: Optional[RiskDataAggregator] = None,
+        recommendation_engine: Optional[InstitutionalRecommendationEngine] = None,
     ):
         """
-        Initialize CourseReportGenerator
+        Initialize CourseReportGenerator.
 
         Args:
             db_session: SQLAlchemy database session
             report_repository: Repository for persisting reports (optional)
+            cohort_aggregator: Cohort data aggregator (optional, for testing)
+            risk_aggregator: Risk data aggregator (optional, for testing)
+            recommendation_engine: Recommendation engine (optional, for testing)
         """
         self.db = db_session
         self.report_repo = report_repository or CourseReportRepository(db_session)
+
+        # Cortez89: Use extracted services (dependency injection)
+        self._cohort_agg = cohort_aggregator or CohortDataAggregator(db_session)
+        self._risk_agg = risk_aggregator or RiskDataAggregator(db_session)
+        self._rec_engine = recommendation_engine or InstitutionalRecommendationEngine()
 
     def generate_cohort_summary(
         self,

@@ -2,6 +2,7 @@
  * useTutorSession Hook - Tutor session management
  *
  * Cortez43: Extracted from TutorPage.tsx (605 lines)
+ * Cortez92: Updated to use ISO-8601 string timestamps for ChatMessage
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -96,7 +97,7 @@ Soy tu tutor de IA, diseñado para ayudarte a aprender programación de manera e
 - Resolver dudas técnicas
 
 ¿En qué te puedo ayudar?`,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         },
       ]);
     } catch (error) {
@@ -122,7 +123,7 @@ Soy tu tutor de IA, diseñado para ayudarte a aprender programación de manera e
         id: Date.now().toString(),
         role: 'user',
         content: content.trim(),
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
 
       setMessages((prev) => [...prev, userMessage]);
@@ -156,7 +157,7 @@ Soy tu tutor de IA, diseñado para ayudarte a aprender programación de manera e
           id: interactionResult.interaction_id,
           role: 'assistant',
           content: interactionResult.response,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           metadata: {
             agent_used: interactionResult.agent_used,
             cognitive_state: interactionResult.cognitive_state_detected,
@@ -177,7 +178,7 @@ Soy tu tutor de IA, diseñado para ayudarte a aprender programación de manera e
           content: `Lo siento, ocurrió un error al procesar tu mensaje. Por favor, intenta de nuevo.
 
 *Error: ${getErrorMessage(error)}*`,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMessage]);
       } finally {

@@ -2,11 +2,13 @@
 Base Simulator - Abstract base class for professional simulators.
 
 Cortez42: Extracted from monolithic simulators.py (1,638 lines)
+FIX Cortez88 HIGH-TIMEOUT-001: Added asyncio.wait_for with centralized timeout
 
 Provides:
 - SimuladorType: Enum of all simulator types
 - BaseSimulator: Abstract base class with common functionality
 """
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
 from enum import Enum
@@ -17,6 +19,8 @@ import time
 from ...utils.prompt_security import detect_prompt_injection
 # FIX Cortez75: Load prompts from external files
 from ...prompts.prompt_loader import get_simulator_config
+# FIX Cortez88 HIGH-TIMEOUT-001: Use centralized timeout configuration (from constants to avoid circular imports)
+from ...core.constants import LLM_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -223,12 +227,28 @@ class BaseSimulator(ABC):
             simulator_max_tokens = int(os.getenv("SIMULATOR_MAX_TOKENS", "300"))
             llm_started_at = time.perf_counter()
 
-            response = await self.llm_provider.generate(
-                messages=messages,
-                temperature=simulator_temperature,
-                max_tokens=simulator_max_tokens,
-                is_code_analysis=False  # Simulators use Flash
-            )
+            # FIX Cortez88 HIGH-TIMEOUT-001: Add asyncio.wait_for with centralized timeout
+            # Prevents indefinite hangs if LLM provider doesn't respond
+            try:
+                response = await asyncio.wait_for(
+                    self.llm_provider.generate(
+                        messages=messages,
+                        temperature=simulator_temperature,
+                        max_tokens=simulator_max_tokens,
+                        is_code_analysis=False  # Simulators use Flash
+                    ),
+                    timeout=LLM_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "LLM timeout after %.1f seconds for role %s",
+                    LLM_TIMEOUT_SECONDS, role,
+                    extra={"flow_id": self.flow_id, "session_id": session_id}
+                )
+                return self._error_response(
+                    role, expects, competencies,
+                    "timeout", f"LLM timeout after {LLM_TIMEOUT_SECONDS}s"
+                )
 
             logger.info(
                 "Simulator received LLM response",

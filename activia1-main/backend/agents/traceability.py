@@ -2,26 +2,24 @@
 Submodelo 6: Sistema N4 de Trazabilidad Cognitiva Institucional (TC-N4)
 
 Captura y reconstruye el proceso completo de razonamiento híbrido humano-IA
+
+Cortez93: Refactored to use LLMGenerationMixin for DRY LLM handling.
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-import asyncio  # FIX Cortez73: For LLM timeout
-import json
-import re
 import logging  # FIX Cortez33: Add logging
 import uuid  # FIX Cortez68 (HIGH-010): Use UUID for unique trace IDs
 
-# FIX Cortez73 (HIGH-003): Timeout for LLM calls
-LLM_TIMEOUT_SECONDS = 30.0
-
 from ..models.trace import CognitiveTrace, TraceLevel, TraceSequence, InteractionType
+from ..llm.base import LLMMessage, LLMRole
+from .base_agent import LLMGenerationMixin, AgentConfig
+from ..core.constants import LLM_TIMEOUT_SECONDS
 
 # FIX Cortez33: Use proper logging instead of print
 logger = logging.getLogger(__name__)
-from ..llm.base import LLMMessage, LLMRole
 
 
-class TrazabilidadN4Agent:
+class TrazabilidadN4Agent(LLMGenerationMixin):
     """
     TC-N4: Sistema de Trazabilidad Cognitiva (4 niveles)
 
@@ -32,17 +30,34 @@ class TrazabilidadN4Agent:
     - N4: Cognitivo completo (razonamiento, decisiones, justificaciones)
 
     Este sistema es la columna vertebral del ecosistema AI-Native
+
+    Cortez93: Refactored to extend LLMGenerationMixin for DRY LLM handling.
     """
 
     def __init__(
         self,
         llm_provider=None,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[AgentConfig] = None,
         trace_repository=None,
         sequence_repository=None
     ):
+        """
+        Initialize the traceability agent.
+
+        Args:
+            llm_provider: LLM provider for cognitive path analysis
+            config: Agent configuration (AgentConfig or dict for backward compatibility)
+            trace_repository: Repository for trace persistence
+            sequence_repository: Repository for sequence persistence
+
+        Cortez93: Now uses AgentConfig typed dataclass for configuration.
+        """
         self.llm_provider = llm_provider
-        self.config = config or {}
+        # Support both AgentConfig and dict for backward compatibility
+        if isinstance(config, AgentConfig):
+            self._config = config
+        else:
+            self._config = AgentConfig.from_dict(config)
         self.trace_repository = trace_repository
         self.sequence_repository = sequence_repository
 
@@ -404,7 +419,12 @@ class TrazabilidadN4Agent:
         }
 
     async def _analyze_cognitive_path_with_llm(self, sequence: TraceSequence) -> Optional[Dict[str, Any]]:
-        """Usa LLM para análisis profundo del camino cognitivo"""
+        """
+        Usa LLM para análisis profundo del camino cognitivo.
+
+        Cortez93: Refactored to use LLMGenerationMixin._generate_with_timeout()
+        for consistent timeout handling and logging.
+        """
         if not self.llm_provider:
             return None
 
@@ -412,13 +432,13 @@ class TrazabilidadN4Agent:
         traces_summary = self._build_traces_summary_for_llm(sequence.traces[:20])
 
         system_prompt = """Eres un experto en análisis cognitivo de procesos de aprendizaje.
-        
+
 Analiza el proceso de razonamiento del estudiante e identifica:
         1. Fases cognitivas (exploración, planificación, implementación, validación)
         2. Estrategias de resolución utilizadas
         3. Momentos de cambio de estrategia y por qué
         4. Calidad del razonamiento (superficial vs profundo)
-        
+
         Responde SOLO con JSON en este formato:
         {
             "phases": [{"phase": "exploración|planificación|implementación|validación", "description": "..."}],
@@ -428,48 +448,40 @@ Analiza el proceso de razonamiento del estudiante e identifica:
             "insights": ["insight1", "insight2"]
         }"""
 
-        user_prompt = f"""Analiza el proceso cognitivo del estudiante:
+        duration = (sequence.end_time - sequence.start_time).total_seconds() if sequence.end_time else "en curso"
+        user_input = f"""Analiza el proceso cognitivo del estudiante:
 
 Estudiante: {sequence.student_id}
 Actividad: {sequence.activity_id}
-Duración: {(sequence.end_time - sequence.start_time).total_seconds() if sequence.end_time else 'en curso'} segundos
+Duración: {duration} segundos
 
 Trazas del proceso:
 {traces_summary}
 
 Identifica patrones cognitivos, estrategias y calidad del razonamiento."""
 
-        messages = [
-            LLMMessage(role=LLMRole.SYSTEM, content=system_prompt),
-            LLMMessage(role=LLMRole.USER, content=user_prompt)
-        ]
+        # Cortez93: Use _build_conversation_messages from LLMGenerationMixin
+        messages = self._build_conversation_messages(
+            system_prompt=system_prompt,
+            user_input=user_input
+        )
 
-        try:
-            # FIX Cortez73 (HIGH-003): Add timeout to prevent indefinite hangs
-            response = await asyncio.wait_for(
-                self.llm_provider.generate(
-                    messages=messages,
-                    temperature=0.4,
-                    max_tokens=700,
-                    is_code_analysis=False  # Usar Flash para análisis de trazabilidad
-                ),
-                timeout=LLM_TIMEOUT_SECONDS
-            )
+        # Cortez93: Use _generate_with_timeout from LLMGenerationMixin
+        response = await self._generate_with_timeout(
+            messages,
+            temperature=0.4,
+            max_tokens=700,
+            is_code_analysis=False,  # Usar Flash para análisis de trazabilidad
+            context_label="traceability_cognitive_analysis"
+        )
 
-            # Extraer JSON
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
+        if response is None:
+            # Timeout or error - already logged by mixin
             return None
 
-        except asyncio.TimeoutError:
-            logger.warning("LLM cognitive analysis timed out after %ss", LLM_TIMEOUT_SECONDS)
-            return None
-        except Exception as e:
-            # FIX Cortez33: Use logger instead of print
-            # FIX Cortez36: Use lazy logging formatting
-            logger.error("Error en análisis LLM cognitivo: %s", e, exc_info=True)
-            return None
+        # Cortez88: Usar extraccion JSON robusta en lugar de regex fragil
+        from ..utils.json_extraction import extract_json_from_text
+        return extract_json_from_text(response.content)
 
     def _build_traces_summary_for_llm(self, traces: List[CognitiveTrace]) -> str:
         """Construye resumen de trazas para análisis LLM"""

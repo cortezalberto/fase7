@@ -1,10 +1,15 @@
 """
 Dependency injection para FastAPI
 Sistema centralizado para proveer dependencias a los endpoints
+
+Cortez92: Fixed thundering herd, moved imports to top level, lazy logging
 """
-from typing import Generator, Optional
+from typing import Generator, Optional, Union
 import logging
+import os
 import threading
+
+from dotenv import load_dotenv
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -21,6 +26,9 @@ from ..database.repositories import (
 from ..core import AIGateway
 from ..core.cache import get_llm_cache
 from ..llm import LLMProviderFactory
+
+# Load environment variables once at module level (MED-009 fix)
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +101,17 @@ def get_intervention_repository(db: Session = Depends(get_db)) -> InterventionRe
 
 
 # Cache del LLM provider (singleton - stateless, seguro para reutilizar)
-_llm_provider_instance: Optional[LLMProviderFactory] = None
+# CRIT-004 FIX: Use Union[None, bool, LLMProvider] to track initialization state
+# - None: not initialized
+# - False: initialization failed (prevents thundering herd retry storm)
+# - LLMProvider instance: successfully initialized
+_llm_provider_instance: Union[None, bool, LLMProviderFactory] = None
 _llm_provider_lock = threading.Lock()  # Lock para thread-safety en singleton
+
+
+class LLMProviderInitializationError(RuntimeError):
+    """Raised when LLM provider fails to initialize and cannot recover."""
+    pass
 
 
 def _initialize_llm_provider():
@@ -104,15 +121,13 @@ def _initialize_llm_provider():
     Lee LLM_PROVIDER (mock, openai, anthropic) y configura el provider correspondiente.
     Si no está configurado, usa Mock provider por defecto.
 
+    CRIT-004 FIX: Now returns False on failure to prevent thundering herd.
+    Subsequent calls will immediately fail instead of retrying initialization.
+
     Returns:
         LLMProvider: Instancia del proveedor configurado
+        False: If initialization failed (marks as failed to prevent retry storm)
     """
-    import os
-    from dotenv import load_dotenv
-
-    # Cargar variables de entorno desde .env
-    load_dotenv()
-
     # Obtener tipo de provider desde env (default: mock)
     provider_type = os.getenv("LLM_PROVIDER", "mock")
 
@@ -123,6 +138,7 @@ def _initialize_llm_provider():
         # Obtener información del modelo
         model_info = provider.get_model_info()
 
+        # CRIT-002 FIX: Use lazy logging instead of f-strings
         logger.info(
             "LLM Provider initialized successfully",
             extra={
@@ -136,8 +152,11 @@ def _initialize_llm_provider():
 
     except ValueError as e:
         # Si falta configuración (ej: API key), usar Mock como fallback
+        # CRIT-002 FIX: Use lazy logging instead of f-strings
         logger.warning(
-            f"Failed to initialize {provider_type} provider, falling back to mock",
+            "Failed to initialize %s provider, falling back to mock: %s",
+            provider_type,
+            str(e),
             extra={
                 "provider_type": provider_type,
                 "error": str(e),
@@ -148,8 +167,11 @@ def _initialize_llm_provider():
 
     except ImportError as e:
         # Si falta paquete (ej: openai no instalado), usar Mock como fallback
+        # CRIT-002 FIX: Use lazy logging instead of f-strings
         logger.warning(
-            f"Missing dependency for {provider_type} provider, falling back to mock",
+            "Missing dependency for %s provider, falling back to mock: %s",
+            provider_type,
+            str(e),
             extra={
                 "provider_type": provider_type,
                 "error": str(e),
@@ -157,6 +179,18 @@ def _initialize_llm_provider():
             }
         )
         return LLMProviderFactory.create("mock")
+
+    except Exception as e:
+        # CRIT-004 FIX: Catch unexpected errors and mark as failed
+        # This prevents thundering herd - all subsequent requests will fail fast
+        logger.error(
+            "Unexpected error initializing LLM provider %s: %s",
+            provider_type,
+            str(e),
+            exc_info=True,
+            extra={"provider_type": provider_type, "error": str(e)}
+        )
+        return False  # Mark as failed to prevent retry storm
 
 
 def get_llm_provider():
@@ -170,10 +204,14 @@ def get_llm_provider():
     en ambientes multi-threaded (ej: uvicorn con múltiples workers).
 
     FIXED (2025-11-21): Corregida race condition del double-checked locking.
-    Ahora usa lock-first pattern (más seguro en Python).
+    FIXED (Cortez92): Added thundering herd prevention - failed init is marked
+    and subsequent calls fail fast instead of retrying.
 
     Returns:
         LLMProvider: Instancia del proveedor configurado (Mock, OpenAI, Gemini, etc.)
+
+    Raises:
+        LLMProviderInitializationError: If provider failed to initialize
 
     Example:
         @app.post("/simulators/interact")
@@ -189,6 +227,13 @@ def get_llm_provider():
     with _llm_provider_lock:
         if _llm_provider_instance is None:
             _llm_provider_instance = _initialize_llm_provider()
+
+    # CRIT-004 FIX: Check if initialization failed (marked as False)
+    if _llm_provider_instance is False:
+        raise LLMProviderInitializationError(
+            "LLM Provider failed to initialize. Check logs for details. "
+            "Restart the application to retry initialization."
+        )
 
     return _llm_provider_instance
 
@@ -238,9 +283,14 @@ def get_ai_gateway(
         if _llm_provider_instance is None:
             _llm_provider_instance = _initialize_llm_provider()
 
+    # CRIT-004 FIX: Check if initialization failed
+    if _llm_provider_instance is False:
+        raise LLMProviderInitializationError(
+            "LLM Provider failed to initialize. Check logs for details."
+        )
+
     # Obtener cache LLM (singleton, compartido entre todos los requests)
-    # Leer configuración desde variables de entorno
-    import os
+    # Leer configuración desde variables de entorno (os already imported at module level)
     cache_enabled = os.getenv("LLM_CACHE_ENABLED", "true").lower() == "true"
     cache_ttl = int(os.getenv("LLM_CACHE_TTL", "3600"))  # 1 hora por defecto
     cache_max_entries = int(os.getenv("LLM_CACHE_MAX_ENTRIES", "1000"))
@@ -304,7 +354,7 @@ async def get_current_user(
         def protected_route(user: dict = Depends(get_current_user)):
             return {"user_id": user["user_id"]}
     """
-    import os
+    # Imports moved to function level due to circular import prevention
     from .security import verify_token, get_user_id_from_token
     # FIX Cortez68 (HIGH-008): Import specific token error classes
     from ..core.security import TokenExpiredError, TokenInvalidError, decode_access_token

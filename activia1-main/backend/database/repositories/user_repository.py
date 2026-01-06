@@ -135,7 +135,8 @@ class UserRepository:
         """
         query = self.db.query(UserDB).order_by(desc(UserDB.created_at))
         if not include_inactive:
-            query = query.filter(UserDB.is_active == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            query = query.filter(UserDB.is_active.is_(True))
         return query.limit(limit).offset(offset).all()
 
     def get_by_role(self, role: str) -> List[UserDB]:
@@ -157,7 +158,8 @@ class UserRepository:
         if dialect_name == "postgresql":
             return (
                 self.db.query(UserDB)
-                .filter(UserDB.is_active == True)
+                # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+                .filter(UserDB.is_active.is_(True))
                 .filter(text("roles @> ARRAY[:role]::varchar[]"))
                 .params(role=role)
                 .all()
@@ -168,13 +170,15 @@ class UserRepository:
             safe_role = role.replace("%", "\\%").replace("_", "\\_").replace('"', '\\"')
             return (
                 self.db.query(UserDB)
-                .filter(UserDB.is_active == True)
+                # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+                .filter(UserDB.is_active.is_(True))
                 .filter(text("roles LIKE :pattern ESCAPE '\\'"))
                 .params(pattern=f'%"{safe_role}"%')
                 .all()
             )
         else:
-            all_users = self.db.query(UserDB).filter(UserDB.is_active == True).all()
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            all_users = self.db.query(UserDB).filter(UserDB.is_active.is_(True)).all()
             return [user for user in all_users if role in user.roles]
 
     def update_password(self, user_id: str, new_hashed_password: str) -> Optional[UserDB]:
@@ -543,7 +547,8 @@ class UserRepository:
         return (
             self.db.query(UserDB)
             .filter(UserDB.commission == commission)
-            .filter(UserDB.is_active == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            .filter(UserDB.is_active.is_(True))
             .order_by(UserDB.full_name)
             .all()
         )
@@ -566,7 +571,8 @@ class UserRepository:
             return (
                 self.db.query(UserDB)
                 .filter(UserDB.course_name == course_name)
-                .filter(UserDB.is_active == True)
+                # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+                .filter(UserDB.is_active.is_(True))
                 .filter(text("roles @> ARRAY['student']::varchar[]"))
                 .order_by(UserDB.full_name)
                 .all()
@@ -575,7 +581,8 @@ class UserRepository:
             return (
                 self.db.query(UserDB)
                 .filter(UserDB.course_name == course_name)
-                .filter(UserDB.is_active == True)
+                # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+                .filter(UserDB.is_active.is_(True))
                 .filter(text("roles LIKE '%\"student\"%'"))
                 .order_by(UserDB.full_name)
                 .all()
@@ -584,7 +591,8 @@ class UserRepository:
             all_users = (
                 self.db.query(UserDB)
                 .filter(UserDB.course_name == course_name)
-                .filter(UserDB.is_active == True)
+                # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+                .filter(UserDB.is_active.is_(True))
                 .all()
             )
             return [user for user in all_users if "student" in user.roles]

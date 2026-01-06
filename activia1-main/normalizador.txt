@@ -1,0 +1,650 @@
+Listo. Abajo tenés un normalizador “industrial” con:
+
+✅ Detector automático de lenguaje: python | java | sql | unknown
+
+✅ Metadata extra por chunk:
+
+has_code
+
+code_lang_guess
+
+keywords
+
+estimated_tokens
+
+✅ bulk_insert_pgvector(...) en 2 variantes:
+
+SQLAlchemy 2.0
+
+psycopg3 (rápido y directo)
+
+Supone que tu tabla destino es documento_chunk con columnas:
+unidad_id, unidad_documento_id, ingesta_id, chunk_index, page_from, page_to, token_count, content_text, embedding, metadata
+
+1) normalizer_plus.py (completo)
+from __future__ import annotations
+
+import re
+import math
+import json
+import hashlib
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Iterable
+
+# ----------------------------
+# Config
+# ----------------------------
+
+@dataclass
+class NormalizerConfig:
+    max_chars: int = 900
+    overlap_chars: int = 120
+    min_chars: int = 160
+
+    merge_short_blocks: bool = True
+    max_merge_chars: int = 1200
+
+    min_title_len: int = 3
+    max_title_len: int = 120
+
+    # Defaults metadata (override via extra_metadata)
+    materia: str = "General"
+    unidad: str = "General"
+    tema: str = "General"
+    nivel: str = "General"
+    lenguaje: str = "auto"  # "auto" o fijo (python/java/sql/etc)
+
+    # keywords
+    keywords_top_k: int = 8
+
+
+# ----------------------------
+# Helpers: hashing & normalize
+# ----------------------------
+
+def sha256_text(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+def normalize_whitespace(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\t", "    ")
+    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+# ----------------------------
+# Title detection (generic)
+# ----------------------------
+
+def looks_like_code(line: str) -> bool:
+    return bool(_CODE_HINT_RE.search(line))
+
+def is_title_line(line: str, cfg: NormalizerConfig) -> bool:
+    s = line.strip()
+    if not s:
+        return False
+    if len(s) < cfg.min_title_len or len(s) > cfg.max_title_len:
+        return False
+
+    # Markdown headings
+    if re.match(r"^#{1,6}\s+\S+", s):
+        return True
+
+    # Numbered headings: 1) 1. 1.2.3) I) a)
+    if re.match(r"^(\d+(\.\d+)*[.)]|[IVXLCDM]+[.)]|[a-zA-Z][.)])\s+\S+", s):
+        return True
+
+    # "Title:"
+    if re.match(r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 \-_/]{2,80}:\s*$", s):
+        return True
+
+    # UPPERCASE titles
+    letters = re.sub(r"[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", "", s)
+    if letters and letters.upper() == letters:
+        if len(s) <= 80 and not looks_like_code(s):
+            return True
+
+    return False
+
+def clean_title(line: str) -> str:
+    s = line.strip()
+    s = re.sub(r"^#{1,6}\s+", "", s)
+    s = re.sub(r"^(\d+(\.\d+)*[.)]|[IVXLCDM]+[.)]|[a-zA-Z][.)])\s+", "", s)
+    s = re.sub(r":\s*$", "", s)
+    return s.strip() or "General"
+
+def split_by_sections_generic(text: str, cfg: NormalizerConfig) -> List[Tuple[str, str]]:
+    lines = text.split("\n")
+    sections: List[Tuple[str, List[str]]] = []
+    current_title = "General"
+    current_body: List[str] = []
+
+    def push():
+        nonlocal current_title, current_body
+        body = "\n".join(current_body).strip()
+        if body:
+            sections.append((current_title, current_body.copy()))
+        current_body = []
+
+    for ln in lines:
+        if is_title_line(ln, cfg):
+            push()
+            current_title = clean_title(ln)
+        else:
+            current_body.append(ln)
+    push()
+
+    out: List[Tuple[str, str]] = []
+    for title, body_lines in sections:
+        body = "\n".join(body_lines).strip()
+        if body:
+            out.append((title or "General", body))
+    return out or [("General", text.strip())]
+
+
+# ----------------------------
+# Code block detection & splitting
+# ----------------------------
+
+_CODE_HINT_RE = re.compile(
+    r"(^\s{4,}\S)|"  # indent 4+
+    r"(^\s*(if|elif|else|for|while|def|class|return|import|from)\b.*:)|"
+    r"(^\s*[a-zA-Z_]\w*\s*=\s*.+)|"
+    r"(^\s*print\s*\()|"
+    r"(^\s*#)|"
+    r"(\{|\}|\;)|"
+    r"(^\s*(public|private|protected|static|void|new|package|import)\b)|"
+    r"(^\s*SELECT\b|^\s*INSERT\b|^\s*UPDATE\b|^\s*DELETE\b|^\s*CREATE\b|^\s*DROP\b|^\s*ALTER\b)",
+    re.IGNORECASE | re.MULTILINE
+)
+
+_RULE_MARKERS = (
+    "es importante", "muy importante", "debe", "deben", "no puede", "no deben",
+    "requiere", "obligatorio", "error", "syntaxerror", "advertencia",
+    "ten en cuenta", "nótese", "nota:"
+)
+
+def classify_text_type(block: str) -> str:
+    b = block.strip()
+    low = b.lower()
+    if looks_like_code(b):
+        return "ejemplo"
+    if any(m in low for m in _RULE_MARKERS):
+        return "regla"
+    if re.search(r"\bejemplo\b", low):
+        return "ejemplo"
+    return "definicion"
+
+def split_into_blocks_respecting_code(text: str) -> List[str]:
+    lines = text.split("\n")
+    blocks: List[str] = []
+    buf: List[str] = []
+    buf_is_code: Optional[bool] = None
+
+    def flush():
+        nonlocal buf, buf_is_code
+        content = "\n".join(buf).strip()
+        if content:
+            blocks.append(content)
+        buf = []
+        buf_is_code = None
+
+    for ln in lines:
+        if not ln.strip():
+            flush()
+            continue
+
+        ln_is_code = looks_like_code(ln)
+        if buf_is_code is None:
+            buf_is_code = ln_is_code
+            buf.append(ln)
+            continue
+
+        if ln_is_code != buf_is_code:
+            flush()
+            buf_is_code = ln_is_code
+            buf.append(ln)
+        else:
+            buf.append(ln)
+
+    flush()
+    return blocks
+
+def merge_small_blocks(blocks: List[str], cfg: NormalizerConfig) -> List[str]:
+    if not cfg.merge_short_blocks:
+        return blocks
+    merged: List[str] = []
+    buf = ""
+    for b in blocks:
+        if not buf:
+            buf = b
+            continue
+        if len(buf) < cfg.min_chars or len(b) < cfg.min_chars:
+            candidate = (buf + "\n\n" + b).strip()
+            if len(candidate) <= cfg.max_merge_chars:
+                buf = candidate
+                continue
+        merged.append(buf)
+        buf = b
+    if buf:
+        merged.append(buf)
+    return merged
+
+
+# ----------------------------
+# Chunking with overlap
+# ----------------------------
+
+def chunk_text(text: str, cfg: NormalizerConfig) -> List[str]:
+    t = text.strip()
+    if len(t) < cfg.min_chars:
+        return []
+    if len(t) <= cfg.max_chars:
+        return [t]
+
+    chunks: List[str] = []
+    start = 0
+    while start < len(t):
+        end = min(len(t), start + cfg.max_chars)
+        chunk = t[start:end].strip()
+
+        # cut by sentence end for prose
+        if end < len(t) and not looks_like_code(chunk):
+            cut = chunk.rfind(". ")
+            if cut > cfg.min_chars:
+                chunk = chunk[:cut + 1].strip()
+                end = start + len(chunk)
+
+        if len(chunk) >= cfg.min_chars:
+            chunks.append(chunk)
+
+        start = max(0, end - cfg.overlap_chars)
+        if start >= len(t):
+            break
+    return chunks
+
+
+# ----------------------------
+# Language detection (python/java/sql)
+# ----------------------------
+
+_PY_TOKENS = re.compile(r"\b(def|import|from|elif|None|True|False|print)\b")
+_JAVA_TOKENS = re.compile(r"\b(public|private|protected|class|static|void|new|package|System\.out\.println)\b")
+_SQL_TOKENS = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|FROM|WHERE|JOIN|GROUP BY|ORDER BY)\b", re.IGNORECASE)
+
+def guess_code_language(text: str) -> str:
+    """
+    Retorna: "python" | "java" | "sql" | "unknown"
+    Heurística por score.
+    """
+    s = text.strip()
+    if not s:
+        return "unknown"
+
+    score_py = 0
+    score_java = 0
+    score_sql = 0
+
+    # señales python
+    score_py += len(_PY_TOKENS.findall(s)) * 2
+    if re.search(r"^\s*if\s+.+:\s*$", s, re.MULTILINE):
+        score_py += 2
+    if re.search(r"^\s*#.+$", s, re.MULTILINE):
+        score_py += 1
+
+    # señales java
+    score_java += len(_JAVA_TOKENS.findall(s)) * 2
+    if re.search(r"\b;\s*$", s, re.MULTILINE):
+        score_java += 1
+    if re.search(r"\b(String|int|boolean|List<|Map<)\b", s):
+        score_java += 1
+
+    # señales SQL
+    score_sql += len(_SQL_TOKENS.findall(s)) * 2
+    if re.search(r"^\s*SELECT\b", s, re.IGNORECASE | re.MULTILINE):
+        score_sql += 2
+    if re.search(r";\s*$", s) and re.search(r"\bFROM\b", s, re.IGNORECASE):
+        score_sql += 1
+
+    best = max(score_py, score_java, score_sql)
+    if best <= 1:
+        return "unknown"
+    if best == score_py:
+        return "python"
+    if best == score_java:
+        return "java"
+    return "sql"
+
+
+# ----------------------------
+# Keywords extraction (simple + effective)
+# ----------------------------
+
+_STOPWORDS_ES = {
+    "el","la","los","las","un","una","unos","unas","y","o","u","de","del","al",
+    "en","por","para","con","sin","es","son","ser","se","que","como","si","no",
+    "más","muy","ya","a","e","lo","su","sus","este","esta","estos","estas",
+    "hay","también","pero","porque","cuando","donde","sobre","entre","hasta",
+    "esto","ese","esa","esas","esos","le","les","te","tu","tus","mi","mis"
+}
+
+def extract_keywords(text: str, top_k: int = 8) -> List[str]:
+    """
+    Keywords por frecuencia simple, filtrando stopwords.
+    Mantiene tokens tipo `if`, `elif`, `else`, etc.
+    """
+    s = text.lower()
+    s = re.sub(r"[^a-záéíóúüñ0-9_ \n]", " ", s)
+    tokens = [t for t in re.split(r"\s+", s) if t]
+
+    freq: Dict[str, int] = {}
+    for t in tokens:
+        if len(t) == 1 and t not in {"if"}:
+            continue
+        if t in _STOPWORDS_ES:
+            continue
+        # evita números puros
+        if t.isdigit():
+            continue
+        freq[t] = freq.get(t, 0) + 1
+
+    # orden: frecuencia desc, luego longitud desc (prioriza términos informativos)
+    ranked = sorted(freq.items(), key=lambda kv: (kv[1], len(kv[0])), reverse=True)
+    return [k for k, _ in ranked[:top_k]]
+
+
+# ----------------------------
+# Token estimation
+# ----------------------------
+
+def estimate_tokens(text: str) -> int:
+    """
+    Estimación rápida: tokens ~ caracteres/4 (regla práctica).
+    """
+    t = text.strip()
+    if not t:
+        return 0
+    return max(1, math.ceil(len(t) / 4))
+
+
+# ----------------------------
+# Normalizer output
+# ----------------------------
+
+def normalize_to_chunks(
+    raw_text: str,
+    *,
+    cfg: Optional[NormalizerConfig] = None,
+    extra_metadata: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    cfg = cfg or NormalizerConfig()
+    extra_metadata = extra_metadata or {}
+
+    text = normalize_whitespace(raw_text)
+    doc_hash = sha256_text(text)
+
+    sections = split_by_sections_generic(text, cfg)
+
+    out_chunks: List[Dict[str, Any]] = []
+    chunk_index = 0
+
+    for section_title, section_body in sections:
+        blocks = split_into_blocks_respecting_code(section_body)
+        blocks = merge_small_blocks(blocks, cfg)
+
+        for block in blocks:
+            tipo = classify_text_type(block)
+            has_code = looks_like_code(block)
+            code_lang_guess = guess_code_language(block) if has_code else "unknown"
+
+            for piece in chunk_text(block, cfg):
+                has_code_piece = looks_like_code(piece)
+                code_lang_piece = guess_code_language(piece) if has_code_piece else code_lang_guess
+
+                est_tokens = estimate_tokens(piece)
+                kws = extract_keywords(piece, top_k=cfg.keywords_top_k)
+
+                # lenguaje final: si cfg.lenguaje != auto, respeta; si auto usa guess
+                lang_final = cfg.lenguaje
+                if (cfg.lenguaje or "").lower() == "auto":
+                    lang_final = code_lang_piece if code_lang_piece != "unknown" else "unknown"
+
+                md: Dict[str, Any] = {
+                    "materia": cfg.materia,
+                    "unidad": cfg.unidad,
+                    "tema": cfg.tema,
+                    "subtema": section_title or "General",
+                    "tipo": tipo,  # definicion | regla | ejemplo
+                    "nivel": cfg.nivel,
+                    "lenguaje": lang_final,
+
+                    # extras
+                    "has_code": bool(has_code_piece),
+                    "code_lang_guess": code_lang_piece,
+                    "keywords": kws,
+                    "estimated_tokens": est_tokens,
+
+                    "chunk_index": chunk_index,
+                    "doc_hash": doc_hash,
+                }
+                md.update(extra_metadata)
+
+                out_chunks.append({"content": piece, "metadata": md})
+                chunk_index += 1
+
+    return {
+        "doc_hash": doc_hash,
+        "chunks": out_chunks,
+        "stats": {
+            "sections": len(sections),
+            "chunks": len(out_chunks),
+        }
+    }
+
+2) bulk_insert_pgvector (SQLAlchemy 2.0)
+
+✅ Funciona si:
+
+tenés engine = create_engine(...)
+
+vectors es List[List[float]] dimensión fija
+
+chunks es lo que devuelve normalize_to_chunks
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Sequence
+
+import sqlalchemy as sa
+from sqlalchemy.engine import Engine
+from sqlalchemy import Table
+
+
+def bulk_insert_pgvector_sqlalchemy(
+    *,
+    engine: Engine,
+    documento_chunk_table: Table,
+    unidad_id: int,
+    unidad_documento_id: int,
+    ingesta_id: uuid.UUID,
+    chunks: List[Dict[str, Any]],
+    vectors: List[List[float]],
+    page_from: Optional[int] = None,
+    page_to: Optional[int] = None,
+) -> int:
+    """
+    Inserta masivo en documento_chunk usando SQLAlchemy Core.
+
+    chunks: [{"content": str, "metadata": dict}, ...]
+    vectors: embeddings alineados por índice (len igual a chunks)
+    """
+    if len(chunks) != len(vectors):
+        raise ValueError("chunks y vectors deben tener la misma longitud")
+
+    now = datetime.now(timezone.utc)
+
+    rows = []
+    for idx, (ch, vec) in enumerate(zip(chunks, vectors)):
+        content = ch["content"]
+        md = ch["metadata"]
+
+        rows.append({
+            "unidad_id": unidad_id,
+            "unidad_documento_id": unidad_documento_id,
+            "ingesta_id": ingesta_id,
+            "chunk_index": md.get("chunk_index", idx),
+            "page_from": page_from,
+            "page_to": page_to,
+            "token_count": md.get("estimated_tokens"),
+            "content_text": content,
+            "embedding": vec,
+            "metadata": md,
+            "created_at": now,
+        })
+
+    with engine.begin() as conn:
+        conn.execute(documento_chunk_table.insert(), rows)
+
+    return len(rows)
+
+
+Cómo declarar la tabla en SQLAlchemy Core (ejemplo):
+
+import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
+
+EMBED_DIM = 1536
+
+metadata = sa.MetaData()
+documento_chunk = sa.Table(
+    "documento_chunk",
+    metadata,
+    sa.Column("id", sa.BigInteger, primary_key=True),
+    sa.Column("unidad_id", sa.BigInteger, nullable=False),
+    sa.Column("unidad_documento_id", sa.BigInteger, nullable=False),
+    sa.Column("ingesta_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("chunk_index", sa.Integer, nullable=False),
+    sa.Column("page_from", sa.Integer),
+    sa.Column("page_to", sa.Integer),
+    sa.Column("token_count", sa.Integer),
+    sa.Column("content_text", sa.Text, nullable=False),
+    sa.Column("embedding", Vector(EMBED_DIM), nullable=False),
+    sa.Column("metadata", sa.dialects.postgresql.JSONB, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+)
+
+3) bulk_insert_pgvector (psycopg3) — recomendado si querés velocidad
+
+✅ Ventaja: súper rápido y simple.
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import psycopg
+from psycopg.types.json import Json
+
+
+def bulk_insert_pgvector_psycopg(
+    *,
+    conn: psycopg.Connection,
+    unidad_id: int,
+    unidad_documento_id: int,
+    ingesta_id: uuid.UUID,
+    chunks: List[Dict[str, Any]],
+    vectors: List[List[float]],
+    page_from: Optional[int] = None,
+    page_to: Optional[int] = None,
+) -> int:
+    """
+    Inserción masiva usando psycopg3.
+    Requiere que pgvector esté instalado en Postgres.
+    """
+    if len(chunks) != len(vectors):
+        raise ValueError("chunks y vectors deben tener la misma longitud")
+
+    now = datetime.now(timezone.utc)
+
+    sql = """
+    INSERT INTO documento_chunk (
+      unidad_id, unidad_documento_id, ingesta_id,
+      chunk_index, page_from, page_to, token_count,
+      content_text, embedding, metadata, created_at
+    )
+    VALUES (
+      %(unidad_id)s, %(unidad_documento_id)s, %(ingesta_id)s,
+      %(chunk_index)s, %(page_from)s, %(page_to)s, %(token_count)s,
+      %(content_text)s, %(embedding)s, %(metadata)s, %(created_at)s
+    )
+    """
+
+    rows = []
+    for idx, (ch, vec) in enumerate(zip(chunks, vectors)):
+        md = ch["metadata"]
+        rows.append({
+            "unidad_id": unidad_id,
+            "unidad_documento_id": unidad_documento_id,
+            "ingesta_id": ingesta_id,
+            "chunk_index": md.get("chunk_index", idx),
+            "page_from": page_from,
+            "page_to": page_to,
+            "token_count": md.get("estimated_tokens"),
+            "content_text": ch["content"],
+            # pgvector acepta formato array como string: '[0.1, 0.2, ...]'
+            "embedding": "[" + ",".join(f"{x:.8f}" for x in vec) + "]",
+            "metadata": Json(md),
+            "created_at": now,
+        })
+
+    with conn.cursor() as cur:
+        cur.executemany(sql, rows)
+
+    conn.commit()
+    return len(rows)
+
+4) Uso end-to-end (ejemplo)
+import uuid
+
+# 1) Normalizar
+result = normalize_to_chunks(
+    raw_text=TU_APUNTE,
+    cfg=NormalizerConfig(
+        materia="Programación I",
+        unidad="Unidad 2",
+        tema="Condicionales",
+        nivel="introductorio",
+        lenguaje="auto",
+    ),
+    extra_metadata={"fuente": "apunte_docente", "version": 1}
+)
+
+chunks = result["chunks"]
+
+# 2) Embeddings
+texts = [c["content"] for c in chunks]
+vectors = embedder.embed_texts(texts)  # tu provider real
+
+# 3) Insert masivo
+ingesta_id = uuid.uuid4()
+bulk_insert_pgvector_sqlalchemy(
+    engine=engine,
+    documento_chunk_table=documento_chunk,
+    unidad_id=2,
+    unidad_documento_id=123,
+    ingesta_id=ingesta_id,
+    chunks=chunks,
+    vectors=vectors,
+)
+
+Notas SR (para evitar dolor real)
+
+estimated_tokens es aproximado (char/4). Si querés precisión, lo conectamos a tiktoken, pero esta versión ya sirve para gating de prompt.
+
+keywords es intencionalmente simple: sirve para debug, UI, y filtros livianos.
+
+code_lang_guess es heurístico: no va a ser perfecto, pero en práctica “Python vs Java vs SQL” pega muy bien.

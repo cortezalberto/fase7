@@ -2,6 +2,7 @@
  * SimulatorChatView Component - Active simulation chat interface
  *
  * Cortez43: Extracted from SimulatorsPage.tsx (514 lines)
+ * Cortez92: Updated to handle ISO-8601 string timestamps
  */
 
 import { useRef, useEffect } from 'react';
@@ -93,7 +94,7 @@ export function SimulatorChatView({
                     message.role === 'user' ? 'text-white/60' : 'text-[var(--text-muted)]'
                   }`}
                 >
-                  {message.timestamp.toLocaleTimeString([], {
+                  {new Date(message.timestamp).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}

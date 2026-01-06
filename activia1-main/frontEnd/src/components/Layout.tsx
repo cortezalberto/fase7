@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useUIStore } from '../stores';
+// Cortez92: Use granular selectors to prevent unnecessary re-renders when theme changes
+import { useSidebarCollapsed, useToggleSidebar } from '../stores';
 import {
   Home,
   MessageSquare,
@@ -44,7 +45,9 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   // FIX Cortez31: Use Zustand for persistent sidebar state
-  const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  // Cortez92: Use granular selectors to prevent re-renders when other store values change
+  const sidebarCollapsed = useSidebarCollapsed();
+  const toggleSidebar = useToggleSidebar();
   const sidebarOpen = !sidebarCollapsed;
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 

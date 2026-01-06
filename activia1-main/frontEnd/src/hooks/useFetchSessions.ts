@@ -2,8 +2,10 @@
  * FE-CODE-001: Custom hook for fetching sessions
  * Reduces code duplication across DashboardPage, AnalyticsPage, and other components
  * that need to fetch session data.
+ *
+ * Cortez92: Fixed duplicate fetch logic, consolidated into single function with AbortController
  */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sessionsService } from '../services/api';
 import { Session } from '../types';
 
@@ -43,6 +45,8 @@ interface UseFetchSessionsResult {
 /**
  * Custom hook to fetch and manage session data
  * Provides memoized statistics and auto-refresh capability
+ *
+ * Cortez92: Consolidated fetch logic to eliminate duplication
  */
 export function useFetchSessions({
   userId,
@@ -52,65 +56,90 @@ export function useFetchSessions({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch sessions function
-  const fetchSessions = useCallback(async () => {
+  // Cortez92: Use ref to track if component is mounted
+  const isMountedRef = useRef(true);
+  // Cortez92: Track current abort controller for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cortez92: Consolidated fetch function with abort support
+  const fetchSessions = useCallback(async (isInitialLoad = false) => {
     if (!userId) {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
       return;
     }
 
-    try {
-      setError(null);
-      const response = await sessionsService.list(userId);
-      setSessions(response?.data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error fetching sessions');
-      console.error('Error fetching sessions:', err);
-    } finally {
-      setIsLoading(false);
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
-  }, [userId]);
 
-  // Initial fetch and cleanup
-  useEffect(() => {
-    const abortController = new AbortController();
+    // Create new abort controller for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-    const doFetch = async () => {
-      if (!userId) {
-        setIsLoading(false);
+    try {
+      if (isInitialLoad) {
+        setIsLoading(true);
+      }
+      setError(null);
+
+      const response = await sessionsService.list(userId);
+
+      // Check if request was aborted or component unmounted
+      if (controller.signal.aborted || !isMountedRef.current) {
         return;
       }
 
-      try {
-        setError(null);
-        const response = await sessionsService.list(userId);
+      setSessions(response?.data || []);
+    } catch (err) {
+      // Ignore abort errors
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
 
-        if (!abortController.signal.aborted) {
-          setSessions(response?.data || []);
-        }
-      } catch (err) {
-        if (!abortController.signal.aborted) {
-          setError(err instanceof Error ? err.message : 'Error fetching sessions');
+      if (!controller.signal.aborted && isMountedRef.current) {
+        const errorMessage = err instanceof Error ? err.message : 'Error fetching sessions';
+        setError(errorMessage);
+        if (import.meta.env.DEV) {
           console.error('Error fetching sessions:', err);
         }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsLoading(false);
-        }
       }
-    };
+    } finally {
+      if (!controller.signal.aborted && isMountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [userId]);
 
-    doFetch();
+  // Public refetch function (marks as non-initial load)
+  const refetch = useCallback(async () => {
+    await fetchSessions(false);
+  }, [fetchSessions]);
+
+  // Initial fetch and cleanup
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    // Initial fetch
+    fetchSessions(true);
 
     return () => {
-      abortController.abort();
+      isMountedRef.current = false;
+      // Abort any in-flight request on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
-  }, [userId]);
+  }, [fetchSessions]);
 
   // Auto-refresh interval
   useEffect(() => {
     if (refreshInterval > 0 && userId) {
-      const intervalId = setInterval(fetchSessions, refreshInterval);
+      const intervalId = setInterval(() => {
+        fetchSessions(false);
+      }, refreshInterval);
       return () => clearInterval(intervalId);
     }
   }, [refreshInterval, userId, fetchSessions]);
@@ -149,7 +178,7 @@ export function useFetchSessions({
     sessions,
     isLoading,
     error,
-    refetch: fetchSessions,
+    refetch,
     stats,
     sessionsByMode
   };

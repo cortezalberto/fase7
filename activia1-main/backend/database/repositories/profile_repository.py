@@ -270,7 +270,8 @@ class SubjectRepository(BaseRepository):
         """Get all subjects."""
         query = self.db.query(SubjectDB)
         if active_only:
-            query = query.filter(SubjectDB.is_active == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            query = query.filter(SubjectDB.is_active.is_(True))
         return query.order_by(SubjectDB.name).all()
 
     def get_by_code(self, code: str) -> Optional[SubjectDB]:
@@ -281,7 +282,8 @@ class SubjectRepository(BaseRepository):
         """Get subjects by programming language."""
         query = self.db.query(SubjectDB).filter(SubjectDB.language == language)
         if active_only:
-            query = query.filter(SubjectDB.is_active == True)
+            # FIX Cortez88 HIGH-BOOL-001: Use .is_(True) instead of == True
+            query = query.filter(SubjectDB.is_active.is_(True))
         return query.all()
 
     def create(self, subject: SubjectDB) -> SubjectDB:

@@ -341,6 +341,7 @@ async def get_student_risks(
 )
 async def get_student_risk_statistics(
     student_id: str,
+    current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R05: Add authentication
     risk_repo: RiskRepository = Depends(get_risk_repository),
 ) -> APIResponse[RiskStatistics]:
     """
@@ -403,6 +404,7 @@ async def get_student_risk_statistics(
 async def get_critical_risks(
     student_id: Optional[str] = Query(None, description="Filtrar por estudiante"),
     risk_repo: RiskRepository = Depends(get_risk_repository),
+    _current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R06: Add authentication
 ) -> APIResponse[List[RiskResponse]]:
     """
     Obtiene riesgos críticos no resueltos.
@@ -568,6 +570,7 @@ async def get_session_evaluation(
 async def get_student_evaluations(
     student_id: str,
     eval_repo: EvaluationRepository = Depends(get_evaluation_repository),
+    _current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R07: Add authentication
 ) -> APIResponse[List[EvaluationResponse]]:
     """
     Obtiene todas las evaluaciones de un estudiante.
@@ -650,6 +653,7 @@ async def analyze_session_risks(
     session_repo: SessionRepository = Depends(get_session_repository),
     risk_repo: RiskRepository = Depends(get_risk_repository),
     db: Session = Depends(get_db),  # FIX: Sólo para SimulatorEventDB query (pendiente crear repo)
+    _current_user: dict = Depends(get_current_user),  # FIX Cortez91 HIGH-R08: Add authentication
 ) -> APIResponse[List[RiskResponse]]:
     """
     Engine de Análisis de Riesgos (AR-IA)

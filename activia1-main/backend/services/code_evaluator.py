@@ -6,6 +6,7 @@ que actúa como un mentor técnico senior. Evalúa no solo funcionalidad sino ta
 calidad de código, robustez y proporciona feedback pedagógico.
 
 FIX Cortez53: Added type hints, converted f-string logs to lazy formatting
+FIX Cortez88 CRIT-005: Sanitized error messages to prevent information disclosure
 
 Uso:
     from backend.services.code_evaluator import CodeEvaluator
@@ -20,6 +21,7 @@ Uso:
 
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
@@ -28,6 +30,36 @@ if TYPE_CHECKING:
     from ..llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
+
+
+# Cortez88 CRIT-005: Sanitize error messages to prevent information disclosure
+def _sanitize_error_for_user(error: Exception) -> str:
+    """
+    Returns a generic, safe error message for user display.
+
+    Logs the full error internally but returns a generic message
+    to prevent information disclosure (stack traces, file paths, etc.)
+
+    Args:
+        error: The exception that occurred
+
+    Returns:
+        Generic user-safe error message
+    """
+    # Generate a unique error ID for correlation
+    error_id = str(uuid.uuid4())[:8]
+
+    # Log the full error with ID for debugging
+    logger.error(
+        "Evaluation error [%s]: %s - %s",
+        error_id,
+        type(error).__name__,
+        str(error),
+        exc_info=True
+    )
+
+    # Return generic message with ID for support reference
+    return f"Error de evaluación (ref: {error_id})"
 
 
 class CodeEvaluator:
@@ -193,19 +225,15 @@ class CodeEvaluator:
             
         except Exception as e:
             # Fallback en caso de error del LLM (timeout, modelo no disponible, etc.)
-            # FIX Cortez53: Use lazy logging and exc_info
-            logger.error(
-                "Error in AI evaluation, using automatic evaluation: %s",
-                e,
-                exc_info=True
-            )
+            # FIX Cortez88 CRIT-005: Sanitize error - don't expose raw exception to user
+            sanitized_error = _sanitize_error_for_user(e)
             logger.info(
                 "Sandbox result: tests_passed=%s, tests_total=%s",
                 sandbox_result.get('tests_passed'),
                 sandbox_result.get('tests_total')
             )
-            # Usar evaluación mock en lugar de fallback de error
-            return self._mock_evaluation(sandbox_result)
+            # Usar evaluación mock con mensaje sanitizado
+            return self._fallback_evaluation(sanitized_error, sandbox_result)
     
     def _parse_llm_response(self, response: str) -> Dict[str, Any]:
         """
@@ -276,16 +304,30 @@ class CodeEvaluator:
             }
         }
     
-    def _fallback_evaluation(self, error: str, sandbox_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _fallback_evaluation(
+        self, sanitized_error: str, sandbox_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Evaluación de fallback en caso de error del LLM.
+
+        FIX Cortez88 CRIT-005: Only display sanitized error reference,
+        never raw exception messages which may contain sensitive info.
+
+        Args:
+            sanitized_error: Sanitized error reference (e.g., "Error de evaluación (ref: abc123)")
+            sandbox_result: Sandbox execution results
         """
         return {
             "evaluation": {
                 "score": 0,
                 "status": "WARNING",
                 "title": "Error en Evaluación",
-                "summary_markdown": f"Ocurrió un error al evaluar tu código: {error}. Por favor, intenta nuevamente.",
+                # Cortez88: Generic message without sensitive details
+                "summary_markdown": (
+                    "Ocurrió un error al evaluar tu código. "
+                    "Por favor, intenta nuevamente. "
+                    f"Si el problema persiste, contacta soporte con la referencia: {sanitized_error}"
+                ),
                 "toast_type": "warning",
                 "toast_message": "Error en evaluación. Intenta nuevamente."
             },
@@ -302,7 +344,8 @@ class CodeEvaluator:
                 "xp_earned": 0,
                 "achievements_unlocked": []
             },
-            "error": error
+            # Cortez88: Only store sanitized reference, not raw error
+            "error_reference": sanitized_error
         }
 
 

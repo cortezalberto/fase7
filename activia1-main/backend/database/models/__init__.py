@@ -93,6 +93,9 @@ from .unidad import (
 # Teacher interventions (Cortez82)
 from .teacher_intervention import TeacherInterventionDB
 
+# Knowledge documents for RAG (Cortez87)
+from .knowledge import KnowledgeDocumentDB
+
 # Legacy alias for utc_now (original name in models.py)
 _utc_now = utc_now
 
@@ -139,4 +142,6 @@ __all__ = [
     "ArchivoAdjuntoDB",
     # Teacher interventions
     "TeacherInterventionDB",
+    # Knowledge documents for RAG (Cortez87)
+    "KnowledgeDocumentDB",
 ]

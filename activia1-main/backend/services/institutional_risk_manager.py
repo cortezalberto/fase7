@@ -3,6 +3,11 @@ InstitutionalRiskManager - SPRINT 5 HU-DOC-010
 
 Servicio para gestión proactiva de riesgos a nivel institucional.
 
+Cortez89: Architecture improvement - now uses extracted aggregators.
+- AlertGenerator moved to recommendation_engine.py
+- Can optionally use RiskDataAggregator for shared risk queries
+- Core alert detection logic remains here (well-structured after Cortez70)
+
 Funcionalidades:
 - Detección automática de alertas basadas en umbrales
 - Creación de planes de remediación para estudiantes en riesgo
@@ -16,10 +21,9 @@ Audiencia: Coordinadores, administradores, docentes
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
-from uuid import uuid4
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func
 
 from ..database.models import (
     SessionDB,
@@ -32,7 +36,8 @@ from ..database.repositories import (
     RemediationPlanRepository,
     RiskRepository,
 )
-from ..models.risk import RiskLevel, RiskDimension
+# Cortez89: Import extracted components
+from .recommendation_engine import AlertGenerator
 
 logger = logging.getLogger(__name__)
 

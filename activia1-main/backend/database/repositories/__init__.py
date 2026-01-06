@@ -85,6 +85,9 @@ from .unidad_repository import UnidadRepository
 # Teacher intervention repository (Cortez82)
 from .intervention_repository import InterventionRepository
 
+# Knowledge repository for RAG (Cortez87)
+from .knowledge_repository import KnowledgeRepository
+
 __all__ = [
     # Base
     "BaseRepository",
@@ -125,4 +128,6 @@ __all__ = [
     "UnidadRepository",
     # Teacher intervention (Cortez82)
     "InterventionRepository",
+    # Knowledge documents for RAG (Cortez87)
+    "KnowledgeRepository",
 ]

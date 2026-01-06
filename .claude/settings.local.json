@@ -79,7 +79,9 @@
       "Bash(python -m backend.database.migrations.add_resource_link_title:*)",
       "Bash(docker ps:*)",
       "Bash(python -m backend.database.migrations.add_traceability_improvements:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git stash:*)",
+      "Bash(sort:*)"
     ]
   }
 }

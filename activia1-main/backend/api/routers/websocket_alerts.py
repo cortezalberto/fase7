@@ -18,8 +18,12 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
 from fastapi.websockets import WebSocketState
 
-from ..deps import get_user_repository
+from ..deps import get_user_repository, require_admin_role
 from ...database.repositories import UserRepository
+from ...core.constants import (
+    WEBSOCKET_KEEPALIVE_TIMEOUT_SECONDS,
+    WEBSOCKET_AUTH_CODE_MISSING_TOKEN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +63,18 @@ class AlertConnectionManager:
         )
 
     async def disconnect(self, websocket: WebSocket, teacher_id: str):
-        """Remove a WebSocket connection."""
+        """Remove a WebSocket connection.
+
+        MED-006 FIX: Fixed potential race condition by using .get() with default
+        and checking key existence before deletion inside the same lock context.
+        """
         async with self._lock:
-            if teacher_id in self.active_connections:
-                self.active_connections[teacher_id].discard(websocket)
-                if not self.active_connections[teacher_id]:
-                    del self.active_connections[teacher_id]
+            # MED-006 FIX: Use .get() to avoid KeyError race condition
+            connections = self.active_connections.get(teacher_id, set())
+            connections.discard(websocket)
+            # Only delete key if it exists AND is empty (atomic check inside lock)
+            if teacher_id in self.active_connections and not self.active_connections[teacher_id]:
+                del self.active_connections[teacher_id]
             self.all_teachers.discard(websocket)
 
         logger.info(
@@ -86,7 +96,8 @@ class AlertConnectionManager:
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.send_json(message)
             except Exception as e:
-                logger.warning(f"Failed to send to teacher {teacher_id}: {e}")
+                # CRIT-002 FIX: Use lazy logging instead of f-strings
+                logger.warning("Failed to send to teacher %s: %s", teacher_id, e)
                 disconnected.append(websocket)
 
         # Clean up disconnected
@@ -107,7 +118,8 @@ class AlertConnectionManager:
                 if websocket.client_state == WebSocketState.CONNECTED:
                     await websocket.send_json(message)
             except Exception as e:
-                logger.warning(f"Failed to broadcast: {e}")
+                # CRIT-002 FIX: Use lazy logging instead of f-strings
+                logger.warning("Failed to broadcast: %s", e)
                 disconnected.append(websocket)
 
         # Clean up disconnected
@@ -177,13 +189,12 @@ async def websocket_teacher_alerts(
         teacher_id = get_user_id_from_token(token)
 
     if not teacher_id:
-        # Allow connection but mark as anonymous in dev mode
-        import os
-        if os.getenv("ENVIRONMENT") == "development":
-            teacher_id = "anonymous_teacher"
-        else:
-            await websocket.close(code=4001, reason="Authentication required")
-            return
+        # FIX Cortez91 CRIT-R04: Removed anonymous connection in development mode
+        # Anonymous connections expose alerts to unauthorized users
+        logger.warning("WebSocket connection rejected: missing or invalid token")
+        # MED-004 FIX: Use centralized constant for WebSocket auth code
+        await websocket.close(code=WEBSOCKET_AUTH_CODE_MISSING_TOKEN, reason="Authentication required")
+        return
 
     try:
         await alert_manager.connect(websocket, teacher_id)
@@ -202,9 +213,10 @@ async def websocket_teacher_alerts(
         while True:
             try:
                 # Wait for messages with timeout for keepalive
+                # MED-004 FIX: Use centralized constant
                 data = await asyncio.wait_for(
                     websocket.receive_json(),
-                    timeout=60.0  # 60 second timeout
+                    timeout=WEBSOCKET_KEEPALIVE_TIMEOUT_SECONDS
                 )
 
                 # Handle incoming messages
@@ -234,9 +246,11 @@ async def websocket_teacher_alerts(
                     break
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {teacher_id}")
+        # CRIT-002 FIX: Use lazy logging instead of f-strings
+        logger.info("WebSocket disconnected: %s", teacher_id)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}", exc_info=True)
+        # CRIT-002 FIX: Use lazy logging instead of f-strings
+        logger.error("WebSocket error: %s", e, exc_info=True)
     finally:
         await alert_manager.disconnect(websocket, teacher_id)
 
@@ -338,6 +352,7 @@ async def trigger_alert_notification(
     student_id: str = Query(..., description="ID del estudiante"),
     message: str = Query(..., description="Mensaje de la alerta"),
     teacher_id: Optional[str] = Query(None, description="ID del docente (opcional, broadcast si no se especifica)"),
+    _current_user: dict = Depends(require_admin_role),  # FIX Cortez91 CRIT-R02: Add admin auth
 ):
     """
     Trigger a manual alert notification.
@@ -365,7 +380,9 @@ async def trigger_alert_notification(
     summary="Estado de conexiones WebSocket",
     description="Obtiene el estado de las conexiones WebSocket de alertas."
 )
-async def get_websocket_status():
+async def get_websocket_status(
+    _current_user: dict = Depends(require_admin_role),  # FIX Cortez91 CRIT-R02: Add admin auth
+):
     """Get WebSocket connection status."""
     return {
         "success": True,

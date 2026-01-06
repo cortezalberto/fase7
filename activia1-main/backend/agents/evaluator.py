@@ -3,6 +3,8 @@ Submodelo 2: Evaluador IA de Procesos Cognitivos (E-IA-Proc)
 
 Analiza, reconstruye y evalúa el proceso cognitivo híbrido humano-IA
 que condujo a una solución técnica.
+
+Cortez93: Refactored to use LLMGenerationMixin for DRY LLM handling.
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -18,10 +20,13 @@ from ..models.evaluation import (
     CompetencyLevel,
     CognitivePhase,
 )
+from .base_agent import LLMGenerationMixin, AgentResponseBuilder, AgentConfig
+from ..llm.base import LLMMessage, LLMRole
 
 logger = logging.getLogger(__name__)
 
-class EvaluadorProcesosAgent:
+
+class EvaluadorProcesosAgent(LLMGenerationMixin):
     """
     E-IA-Proc: Evaluador de Procesos Cognitivos
 
@@ -35,9 +40,22 @@ class EvaluadorProcesosAgent:
     NO califica ni aprueba - solo analiza y genera evidencia
     """
 
-    def __init__(self, llm_provider=None, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, llm_provider=None, config: Optional[AgentConfig] = None):
+        """
+        Initialize the process evaluator agent.
+
+        Args:
+            llm_provider: LLM provider for deep analysis
+            config: Agent configuration (AgentConfig or dict for backward compatibility)
+
+        Cortez93: Now uses AgentConfig typed dataclass for configuration.
+        """
         self.llm_provider = llm_provider
-        self.config = config or {}
+        # Support both AgentConfig and dict for backward compatibility
+        if isinstance(config, AgentConfig):
+            self._config = config
+        else:
+            self._config = AgentConfig.from_dict(config)
 
     async def evaluate_process_async(
         self,
@@ -234,20 +252,21 @@ class EvaluadorProcesosAgent:
     async def _analyze_reasoning_deep(self, trace_sequence: TraceSequence) -> ReasoningAnalysis:
         """
         Análisis profundo de razonamiento usando Gemini Pro
-        
+
+        Cortez93: Refactored to use LLMGenerationMixin._generate_with_timeout()
+        for consistent timeout handling and logging.
+
         Este método usa LLM para análisis cognitivo más sofisticado.
         Si no hay LLM disponible, usa _analyze_reasoning (heurístico).
         """
         if not self.llm_provider:
             # Fallback a análisis heurístico
             return self._analyze_reasoning(trace_sequence)
-        
+
         try:
-            from ..llm.base import LLMMessage, LLMRole
-            
             # Construir resumen de las trazas
             traces_summary = self._build_traces_summary(trace_sequence.traces)
-            
+
             system_prompt = """Eres un experto en análisis cognitivo y evaluación de procesos de aprendizaje.
 
 Analiza el proceso de razonamiento del estudiante basándote en sus trazas cognitivas.
@@ -271,32 +290,33 @@ Responde en formato JSON:
   "summary": "Resumen del análisis en 2-3 oraciones"
 }"""
 
-            messages = [
-                LLMMessage(role=LLMRole.SYSTEM, content=system_prompt),
-                LLMMessage(
-                    role=LLMRole.USER,
-                    content=f"""Proceso cognitivo del estudiante:
+            # Cortez93: Use _build_conversation_messages from LLMGenerationMixin
+            messages = self._build_conversation_messages(
+                system_prompt=system_prompt,
+                user_input=f"""Proceso cognitivo del estudiante:
 
 {traces_summary}
 
 Analiza este proceso de razonamiento."""
-                )
-            ]
-            
-            # Usar Gemini Pro para análisis profundo de razonamiento
-            response = await self.llm_provider.generate(
+            )
+
+            # Cortez93: Use _generate_with_timeout from LLMGenerationMixin
+            response = await self._generate_with_timeout(
                 messages,
                 temperature=0.3,  # Baja temperatura para análisis consistente
                 max_tokens=800,
-                is_code_analysis=True  # FORZAR Pro model para análisis profundo
+                is_code_analysis=True,  # FORZAR Pro model para análisis profundo
+                context_label="evaluator_deep_analysis"
             )
-            
-            # Parsear respuesta
-            import json
-            import re
-            json_match = re.search(r'\{[^}]+\}', response.content, re.DOTALL)
-            if json_match:
-                analysis_data = json.loads(json_match.group())
+
+            if response is None:
+                # Timeout or error - fallback to heuristic
+                return self._analyze_reasoning(trace_sequence)
+
+            # Cortez88: Usar extraccion JSON robusta en lugar de regex fragil
+            from ..utils.json_extraction import extract_json_from_text
+            analysis_data = extract_json_from_text(response.content)
+            if analysis_data:
                 
                 # Reconstruir ReasoningAnalysis con datos del LLM
                 traces = trace_sequence.traces

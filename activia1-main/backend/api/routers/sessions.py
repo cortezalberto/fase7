@@ -895,6 +895,7 @@ Opero bajo **4 reglas inquebrantables**:
 async def interact_with_tutor(
     session_id: str,
     request_data: Dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user),  # FIX Cortez91 CRIT-R03: Add authentication
     session_repo: SessionRepository = Depends(get_session_repository),
 ) -> APIResponse[Dict[str, Any]]:
     """

@@ -13,7 +13,7 @@ from uuid import uuid4
 import logging
 
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, select
 
 from backend.core.constants import utc_now
 from ..models import InterviewSessionDB, IncidentSimulationDB, SimulatorEventDB
@@ -89,30 +89,58 @@ class InterviewSessionRepository(BaseRepository):
     def add_question(
         self, interview_id: str, question: dict
     ) -> Optional[InterviewSessionDB]:
-        """Add a question to an interview."""
-        interview = self.get_by_id(interview_id)
-        if not interview:
-            return None
+        """
+        Add a question to an interview.
 
-        interview.questions_asked = interview.questions_asked + [question]
-        interview.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(interview)
-        return interview
+        FIX Cortez91 CRIT-P01: Use SELECT FOR UPDATE to prevent race conditions
+        when multiple concurrent requests try to add questions to the same interview.
+        """
+        try:
+            # Use pessimistic locking to prevent race conditions
+            stmt = select(InterviewSessionDB).where(
+                InterviewSessionDB.id == interview_id
+            ).with_for_update()
+            interview = self.db.execute(stmt).scalar_one_or_none()
+
+            if not interview:
+                return None
+
+            interview.questions_asked = interview.questions_asked + [question]
+            interview.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(interview)
+            return interview
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to add question to interview %s: %s", interview_id, str(e))
+            raise
 
     def add_response(
         self, interview_id: str, response: dict
     ) -> Optional[InterviewSessionDB]:
-        """Add a student response to an interview."""
-        interview = self.get_by_id(interview_id)
-        if not interview:
-            return None
+        """
+        Add a student response to an interview.
 
-        interview.responses = interview.responses + [response]
-        interview.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(interview)
-        return interview
+        FIX Cortez91: Use SELECT FOR UPDATE to prevent race conditions.
+        """
+        try:
+            stmt = select(InterviewSessionDB).where(
+                InterviewSessionDB.id == interview_id
+            ).with_for_update()
+            interview = self.db.execute(stmt).scalar_one_or_none()
+
+            if not interview:
+                return None
+
+            interview.responses = interview.responses + [response]
+            interview.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(interview)
+            return interview
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to add response to interview %s: %s", interview_id, str(e))
+            raise
 
     def complete_interview(
         self,
@@ -255,16 +283,30 @@ class IncidentSimulationRepository(BaseRepository):
     def add_diagnosis_step(
         self, incident_id: str, diagnosis_step: dict
     ) -> Optional[IncidentSimulationDB]:
-        """Add a diagnosis step to the incident."""
-        incident = self.get_by_id(incident_id)
-        if not incident:
-            return None
+        """
+        Add a diagnosis step to the incident.
 
-        incident.diagnosis_process = incident.diagnosis_process + [diagnosis_step]
-        incident.updated_at = utc_now()
-        self.db.commit()
-        self.db.refresh(incident)
-        return incident
+        FIX Cortez91 CRIT-P02: Use SELECT FOR UPDATE to prevent race conditions
+        when multiple concurrent requests try to add diagnosis steps.
+        """
+        try:
+            stmt = select(IncidentSimulationDB).where(
+                IncidentSimulationDB.id == incident_id
+            ).with_for_update()
+            incident = self.db.execute(stmt).scalar_one_or_none()
+
+            if not incident:
+                return None
+
+            incident.diagnosis_process = incident.diagnosis_process + [diagnosis_step]
+            incident.updated_at = utc_now()
+            self.db.commit()
+            self.db.refresh(incident)
+            return incident
+        except Exception as e:
+            self.db.rollback()
+            logger.error("Failed to add diagnosis step to incident %s: %s", incident_id, str(e))
+            raise
 
     def complete_incident(
         self,

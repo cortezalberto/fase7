@@ -2,11 +2,17 @@
 Evaluation Repository - Evaluation database operations.
 
 Cortez42: Extracted from monolithic repositories.py (5,134 lines)
+Cortez89: Migrated to GenericRepository base for reusable CRUD operations.
 
 Provides:
 - EvaluationRepository: CRUD operations for evaluations
 - Batch loading to prevent N+1 queries
 - Session-based evaluation queries
+
+Migration Note (Cortez89):
+- Inherits from GenericRepository[EvaluationDB] for type-safe base operations
+- Domain-specific methods (create from domain model, batch loading) kept as-is
+- Generic get_by_id(), count(), exists() inherited from GenericRepository
 """
 from typing import List, Optional, Dict
 from uuid import uuid4
@@ -17,18 +23,24 @@ from sqlalchemy import desc, func, and_
 
 from ..models import EvaluationDB
 from ...models.evaluation import EvaluationReport, CompetencyLevel
-from .base import _safe_enum_to_str
+from .base import _safe_enum_to_str, GenericRepository
 
 logger = logging.getLogger(__name__)
 
 
-class EvaluationRepository:
-    """Repository for evaluation operations."""
+class EvaluationRepository(GenericRepository[EvaluationDB]):
+    """
+    Repository for evaluation operations.
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    Cortez89: Now extends GenericRepository[EvaluationDB].
+    Inherits: get_by_id, get_by_ids, get_all, update, delete, soft_delete,
+              restore, exists, count, get_or_create, create_batch.
+    """
 
-    def create(self, evaluation: EvaluationReport) -> EvaluationDB:
+    # Required by GenericRepository
+    model = EvaluationDB
+
+    def create_from_report(self, evaluation: EvaluationReport) -> EvaluationDB:
         """
         Create a new evaluation.
 
@@ -91,9 +103,12 @@ class EvaluationRepository:
             raise
         return db_evaluation
 
-    def get_by_id(self, evaluation_id: str) -> Optional[EvaluationDB]:
-        """Get evaluation by ID."""
-        return self.db.query(EvaluationDB).filter(EvaluationDB.id == evaluation_id).first()
+    # Cortez89: Removed get_by_id() - now inherited from GenericRepository
+
+    # Backward compatibility alias (Cortez89)
+    def create(self, evaluation: EvaluationReport) -> EvaluationDB:
+        """Alias for create_from_report() - for backward compatibility."""
+        return self.create_from_report(evaluation)
 
     def get_by_session(
         self,

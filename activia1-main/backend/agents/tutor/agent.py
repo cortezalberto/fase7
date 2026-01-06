@@ -10,7 +10,10 @@ Incorpora:
 2. Sistema de gobernanza con semáforos (Verde/Amarillo/Rojo)
 3. Procesamiento IPC -> GSR -> Andamiaje
 4. Metadata completa para análisis N4
+
+FIX Cortez88 HIGH-TIMEOUT-001: Added asyncio.wait_for with centralized timeout
 """
+import asyncio
 from typing import Optional, Dict, Any, List
 from enum import Enum
 from datetime import datetime
@@ -22,6 +25,8 @@ logger = logging.getLogger(__name__)
 from ...models.trace import CognitiveTrace, TraceLevel, InteractionType
 # FIX Cortez73 (MED-004): Use centralized prompt injection detection
 from ...utils.prompt_security import detect_prompt_injection
+# FIX Cortez88 HIGH-TIMEOUT-001: Use centralized timeout configuration (from constants to avoid circular imports)
+from ...core.constants import LLM_TIMEOUT_SECONDS
 from .rules import (
     TutorRulesEngine,
     TutorRule,
@@ -448,13 +453,17 @@ class TutorCognitivoAgent:
                 messages = conversation_history + [
                     {"role": "user", "content": student_prompt}
                 ]
-                
+
+                # FIX Cortez88 HIGH-TIMEOUT-001: Add asyncio.wait_for with centralized timeout
                 # Generar respuesta con contexto completo
-                llm_response = await self.llm_provider.generate(
-                    messages=messages,
-                    system_prompt=system_prompt,
-                    temperature=0.7,
-                    max_tokens=500
+                llm_response = await asyncio.wait_for(
+                    self.llm_provider.generate(
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        temperature=0.7,
+                        max_tokens=500
+                    ),
+                    timeout=LLM_TIMEOUT_SECONDS
                 )
                 
                 # Extraer el contenido de la respuesta del LLM
@@ -854,8 +863,11 @@ Una vez que compartas tu razonamiento, podré orientarte de manera precisa.
             LLMMessage(role=LLMRole.USER, content=f"Estudiante pregunta: {prompt}")
         ]
 
-        # Ejecutar generate de forma asíncrona
-        llm_response = await self.llm_provider.generate(messages, temperature=0.7, max_tokens=500)
+        # FIX Cortez88 HIGH-TIMEOUT-001: Add asyncio.wait_for with centralized timeout
+        llm_response = await asyncio.wait_for(
+            self.llm_provider.generate(messages, temperature=0.7, max_tokens=500),
+            timeout=LLM_TIMEOUT_SECONDS
+        )
 
         # Extraer el texto de la respuesta
         response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
@@ -906,8 +918,11 @@ Una vez que compartas tu razonamiento, podré orientarte de manera precisa.
             LLMMessage(role=LLMRole.USER, content=f"Pregunta del estudiante: {prompt}")
         ]
 
-        # Ejecutar generate de forma asíncrona
-        llm_response = await self.llm_provider.generate(messages, temperature=0.7, max_tokens=600)
+        # FIX Cortez88 HIGH-TIMEOUT-001: Add asyncio.wait_for with centralized timeout
+        llm_response = await asyncio.wait_for(
+            self.llm_provider.generate(messages, temperature=0.7, max_tokens=600),
+            timeout=LLM_TIMEOUT_SECONDS
+        )
 
         response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
 
@@ -960,8 +975,11 @@ Una vez que compartas tu razonamiento, podré orientarte de manera precisa.
             LLMMessage(role=LLMRole.USER, content=f"Estudiante pregunta: {prompt}")
         ]
 
-        # Ejecutar generate de forma asíncrona
-        llm_response = await self.llm_provider.generate(messages, temperature=0.7, max_tokens=700)
+        # FIX Cortez88 HIGH-TIMEOUT-001: Add asyncio.wait_for with centralized timeout
+        llm_response = await asyncio.wait_for(
+            self.llm_provider.generate(messages, temperature=0.7, max_tokens=700),
+            timeout=LLM_TIMEOUT_SECONDS
+        )
 
         response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
 
