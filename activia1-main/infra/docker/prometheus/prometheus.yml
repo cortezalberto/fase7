@@ -1,6 +1,7 @@
 # ============================================================================
 # Prometheus Configuration for AI-Native MVP
 # ============================================================================
+# Updated: Cortez94 - January 2026
 # Complete monitoring configuration with all exporters
 # ============================================================================
 
@@ -49,7 +50,7 @@ scrape_configs:
         labels:
           service: 'ai-native-api'
           component: 'backend'
-          version: '0.1.0'
+          version: '2.0.0'
 
   # ========================================================================
   # PostgreSQL Exporter

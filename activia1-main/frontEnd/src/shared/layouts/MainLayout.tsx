@@ -3,7 +3,8 @@
  * FIX Cortez31: Migrated to Zustand for state management
  * Cortez92: Use granular selectors to prevent unnecessary re-renders
  */
-import React from 'react';
+// Cortez93: Removed unnecessary React default import (React 19 JSX transform)
+import { useState, useEffect } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 // Cortez92: Use granular selectors to prevent unnecessary re-renders
 import {
@@ -28,9 +29,9 @@ export function MainLayout() {
   const toggleSidebar = useToggleSidebar();
   const currentSession = useCurrentSession();
   const { user, logout } = useAuth();
-  const [wsStatus, setWsStatus] = React.useState(wsService.getState());
+  const [wsStatus, setWsStatus] = useState(wsService.getState());
 
-  React.useEffect(() => {
+  useEffect(() => {
     const unsubscribe = wsService.onEvent('connect', () => {
       setWsStatus(wsService.getState());
     });

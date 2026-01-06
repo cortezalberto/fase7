@@ -2,6 +2,7 @@
 # AI-Native MVP - ConfigMap
 # ============================================================================
 # Configuration for staging environment
+# Updated: Cortez94 - January 2026
 # NOTE: LLM_PROVIDER defaults to "gemini" for staging. Use "mock" for testing.
 # ============================================================================
 
@@ -13,6 +14,7 @@ metadata:
   labels:
     app: ai-native
     environment: staging
+    version: "2.0.0"
 data:
   # =========================================================================
   # Environment
@@ -31,6 +33,7 @@ data:
 
   # =========================================================================
   # Database Connection Pool (P1.3)
+  # Optimized for PostgreSQL 16
   # =========================================================================
   DB_POOL_SIZE: "20"
   DB_MAX_OVERFLOW: "40"
@@ -47,22 +50,31 @@ data:
   LLM_CACHE_MAX_ENTRIES: "1000"
 
   # =========================================================================
-  # LLM Provider
+  # LLM Provider (Cortez94)
   # =========================================================================
-  # Options: "gemini", "openai", "ollama", "mock"
+  # Options: "gemini", "mistral", "openai", "ollama", "mock"
   # - gemini: Google Gemini API (recommended for staging/production)
+  # - mistral: Mistral API (alternative)
   # - openai: OpenAI GPT API
   # - ollama: Local Ollama server (for development)
   # - mock: Mock responses (for testing without LLM costs)
   LLM_PROVIDER: "gemini"
 
-  # OpenAI settings (if LLM_PROVIDER=openai)
-  OPENAI_MODEL: "gpt-4"
-  OPENAI_TEMPERATURE: "0.7"
+  # Mistral settings (if LLM_PROVIDER=mistral) - Added Cortez94
+  MISTRAL_MODEL: "mistral-small-latest"
+  MISTRAL_TEMPERATURE: "0.7"
+  MISTRAL_TIMEOUT: "60"
+  MISTRAL_MAX_RETRIES: "3"
 
   # Gemini settings (if LLM_PROVIDER=gemini)
-  GEMINI_MODEL: "gemini-1.5-flash"
+  GEMINI_MODEL: "gemini-2.0-flash"
   GEMINI_TEMPERATURE: "0.7"
+  GEMINI_TIMEOUT: "30"
+  GEMINI_MAX_RETRIES: "3"
+
+  # OpenAI settings (if LLM_PROVIDER=openai)
+  OPENAI_MODEL: "gpt-4o"
+  OPENAI_TEMPERATURE: "0.7"
 
   # Ollama settings (if LLM_PROVIDER=ollama)
   OLLAMA_BASE_URL: "http://ollama:11434"
@@ -95,9 +107,12 @@ data:
   REQUIRE_TRACEABILITY: "true"
 
   # =========================================================================
-  # Feature Flags
+  # Feature Flags (Cortez94)
   # =========================================================================
   ENABLE_N4_TRACEABILITY: "true"
   ENABLE_RISK_ANALYSIS: "true"
   ENABLE_PROCESS_EVALUATION: "true"
   ENABLE_GIT_INTEGRATION: "false"
+  ENABLE_RAG: "false"
+  RAG_MIN_CONFIDENCE: "0.6"
+  RAG_MAX_DOCUMENTS: "3"

@@ -1,7 +1,9 @@
 # ============================================================================
 # AI-Native MVP - Base Docker Compose (Core Services Only)
 # ============================================================================
-# Cortez44: Extracted from docker-compose.yml (606 lines) for modularization
+# Updated: Cortez94 - January 2026
+# - PostgreSQL 16, Redis 7.4
+# - Python 3.12, Node 22 LTS
 #
 # This file contains only the core services required for the application.
 # Use docker-compose override files to add additional features.
@@ -100,10 +102,10 @@ services:
         max-file: "3"
 
   # ==========================================================================
-  # PostgreSQL Database
+  # PostgreSQL Database (Cortez94: Updated to 16 LTS)
   # ==========================================================================
   postgres:
-    image: postgres:15.7-alpine
+    image: postgres:16-alpine
     container_name: ai-native-postgres
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-ai_native}
@@ -133,10 +135,10 @@ services:
         max-file: "3"
 
   # ==========================================================================
-  # Redis Cache
+  # Redis Cache (Cortez94: Updated to 7.4)
   # ==========================================================================
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.4-alpine
     container_name: ai-native-redis
     ports:
       - "6379:6379"

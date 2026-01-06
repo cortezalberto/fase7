@@ -1,10 +1,11 @@
 # ============================================================================
 # AI-Native MVP - Docker Compose Stack Completo
 # ============================================================================
-# Define el stack completo de la aplicación:
-# - API Backend (FastAPI con uvicorn)
-# - PostgreSQL Database
-# - Redis Cache (para rate limiting y LLM cache)
+# Updated: Cortez94 - January 2026
+# - PostgreSQL 16, Redis 7.4, Nginx 1.27
+# - Python 3.12, Node 22 LTS
+# - React 19 + Vite 6.4
+# - Enhanced security and health checks
 #
 # Uso:
 #   docker-compose up -d          # Iniciar stack
@@ -169,10 +170,10 @@ services:
         labels: "service=ai-native-frontend"
 
   # ==========================================================================
-  # PostgreSQL Database
+  # PostgreSQL Database (Updated to 16 LTS - Cortez94)
   # ==========================================================================
   postgres:
-    image: postgres:15.7-alpine
+    image: postgres:16-alpine
     container_name: ai-native-postgres
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-ai_native}
@@ -247,10 +248,10 @@ services:
         labels: "service=ai-native-postgres"
 
   # ==========================================================================
-  # Redis Cache
+  # Redis Cache (Updated to 7.4 - Cortez94)
   # ==========================================================================
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.4-alpine
     container_name: ai-native-redis
     ports:
       - "6379:6379"
@@ -433,10 +434,10 @@ services:
       - debug  # Solo se inicia con: docker-compose --profile debug up
 
   # ==========================================================================
-  # Prometheus (opcional) - Metrics Storage & Querying
+  # Prometheus (opcional) - Metrics Storage & Querying (Updated - Cortez94)
   # ==========================================================================
   prometheus:
-    image: prom/prometheus:v2.48.0
+    image: prom/prometheus:v2.54.0
     container_name: ai-native-prometheus
     ports:
       - "9090:9090"
@@ -464,11 +465,11 @@ services:
       - monitoring  # Solo se inicia con: docker-compose --profile monitoring up
 
   # ==========================================================================
-  # Grafana (opcional) - Visualization & Dashboards
+  # Grafana (opcional) - Visualization & Dashboards (Updated - Cortez94)
   # FIX 1.2: Use environment variables for credentials
   # ==========================================================================
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:11.3.0
     container_name: ai-native-grafana
     ports:
       - "3001:3000"

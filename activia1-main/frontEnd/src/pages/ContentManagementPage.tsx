@@ -23,6 +23,7 @@ import {
 import { academicService, filesService } from '@/services/api';
 import { FileUploader } from '@/components/FileUploader';
 import { PDFViewer } from '@/components/PDFViewer';
+import { unwrapResponse } from '@/utils';
 import type {
   MateriaConUnidades,
   UnidadConEjercicios,
@@ -379,8 +380,9 @@ export default function ContentManagementPage() {
         solo_activas: false,
         incluir_unidades: true
       });
-      // FIX: Ensure data is always an array
-      const materiasArray = Array.isArray(data) ? data : (data as unknown as { data: MateriaConUnidades[] })?.data || [];
+      // Cortez93: Use unwrapResponse utility to handle both wrapped and direct responses
+      const unwrapped = unwrapResponse(data);
+      const materiasArray = Array.isArray(unwrapped) ? unwrapped : [];
       setMaterias(materiasArray);
     } catch (err) {
       setError('Error cargando materias');

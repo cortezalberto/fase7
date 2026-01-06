@@ -24,6 +24,7 @@ import {
   TraceabilitySummaryResponse,
 } from '../services/api';
 import apiClient from '../services/api/client';
+import { unwrapResponse } from '../utils';
 import {
   Users,
   AlertTriangle,
@@ -105,10 +106,9 @@ export default function TeacherDashboardPage() {
         ]);
 
         if (!abortController.signal.aborted) {
-          // Handle alerts
+          // Handle alerts - Cortez93: Use unwrapResponse utility
           if (alertsRes.status === 'fulfilled') {
-            const data = alertsRes.value.data;
-            setAlerts('data' in data ? data.data : data as unknown as AlertsResponse);
+            setAlerts(unwrapResponse<AlertsResponse>(alertsRes.value.data));
           }
 
           // Handle analytics

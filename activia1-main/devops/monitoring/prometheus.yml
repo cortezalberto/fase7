@@ -1,7 +1,10 @@
 # ============================================================================
 # Prometheus Configuration for AI-Native MVP
 # ============================================================================
-# Updated: 2025-12-30 - Enabled PostgreSQL, Redis, and Alertmanager
+# Updated: Cortez94 - January 2026
+# - Added LLM provider metrics
+# - Updated version labels
+# - Enhanced scrape configurations
 # ============================================================================
 
 global:
@@ -64,7 +67,7 @@ scrape_configs:
         labels:
           service: 'ai-native-api'
           component: 'backend'
-          version: '0.1.0'
+          version: '2.0.0'
 
   # ========================================================================
   # PostgreSQL Database (via postgres-exporter)

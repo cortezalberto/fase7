@@ -85,6 +85,9 @@ export function useFetchSessions({
       }
       setError(null);
 
+      // Cortez93: Note - sessionsService.list() doesn't currently accept AbortSignal
+      // The abort controller still prevents state updates after unmount
+      // TODO: Add signal support to sessionsService.list() for true request cancellation
       const response = await sessionsService.list(userId);
 
       // Check if request was aborted or component unmounted

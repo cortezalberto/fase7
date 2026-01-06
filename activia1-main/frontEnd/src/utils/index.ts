@@ -34,3 +34,10 @@ export * from './riskUtils';
 
 // Error utilities
 export * from './errorUtils';
+
+// Response handling utilities (Cortez93)
+export {
+  unwrapResponse,
+  unwrapResponseWithDefault,
+  unwrapAndValidate,
+} from './responseHandler';

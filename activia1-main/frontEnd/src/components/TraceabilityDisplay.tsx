@@ -4,7 +4,8 @@
  * FIX Cortez31: Renamed from TraceabilityViewer to TraceabilityDisplay
  *   to differentiate from the page-level TraceabilityViewer in features/
  */
-import React, { useState } from 'react';
+// Cortez93: Removed unnecessary React default import (React 19 JSX transform)
+import { useState } from 'react';
 import { GitBranch, Clock, Layers, ChevronDown, ChevronUp, Cpu, Zap } from 'lucide-react';
 import { TraceabilityN4, TraceabilityNode } from '../types';
 

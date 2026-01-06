@@ -204,6 +204,13 @@ spec:
               name: ai-native-secrets
               key: GEMINI_API_KEY
               optional: true
+        # Cortez94: Added Mistral API support
+        - name: MISTRAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-native-secrets
+              key: MISTRAL_API_KEY
+              optional: true
 
         envFrom:
         - configMapRef:

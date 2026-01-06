@@ -6,7 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This directory contains the complete DevOps infrastructure for the AI-Native MVP project including Kubernetes deployments, monitoring, security auditing, load testing, and operational scripts.
 
-**Last Updated:** Cortez40 Optimization Audit (December 2025) - 32 optimizations applied: common library for ~400 lines deduplication, 2:1 resource ratio, parallel deployment support.
+**Last Updated:** Cortez94 DevOps Update (January 2026)
+- Updated to PostgreSQL 16, Redis 7.4, Nginx 1.27
+- Python 3.12, Node 22 LTS
+- React 19 + Vite 6.4 support
+- Prometheus 2.54, Grafana 11.3
+- Added Mistral API support
+- Enhanced Docker build caching
+- Non-root container security
+
+**Previous:** Cortez40 Optimization Audit (December 2025) - 32 optimizations applied: common library for ~400 lines deduplication, 2:1 resource ratio, parallel deployment support.
 
 ## Quick Commands
 

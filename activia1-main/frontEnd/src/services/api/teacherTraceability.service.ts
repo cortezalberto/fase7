@@ -10,6 +10,7 @@
  */
 
 import apiClient from './client';
+import { unwrapResponse } from '@/utils';
 
 // =====================================================================
 // TYPES
@@ -185,7 +186,8 @@ export const teacherTraceabilityService = {
     const url = `/teacher/students/${studentId}/traceability${queryString ? `?${queryString}` : ''}`;
 
     const response = await apiClient.get<{ data: StudentTraceabilityResponse }>(url);
-    return 'data' in response.data ? response.data.data : (response.data as unknown as StudentTraceabilityResponse);
+    // Cortez93: Use unwrapResponse utility
+    return unwrapResponse<StudentTraceabilityResponse>(response.data);
   },
 
   /**
@@ -209,7 +211,8 @@ export const teacherTraceabilityService = {
     const url = `/teacher/students/${studentId}/cognitive-path${queryString ? `?${queryString}` : ''}`;
 
     const response = await apiClient.get<{ data: StudentCognitivePathResponse }>(url);
-    return 'data' in response.data ? response.data.data : (response.data as unknown as StudentCognitivePathResponse);
+    // Cortez93: Use unwrapResponse utility
+    return unwrapResponse<StudentCognitivePathResponse>(response.data);
   },
 
   /**
@@ -231,7 +234,8 @@ export const teacherTraceabilityService = {
     const url = `/teacher/traceability/summary${queryString ? `?${queryString}` : ''}`;
 
     const response = await apiClient.get<{ data: TraceabilitySummaryResponse }>(url);
-    return 'data' in response.data ? response.data.data : (response.data as unknown as TraceabilitySummaryResponse);
+    // Cortez93: Use unwrapResponse utility
+    return unwrapResponse<TraceabilitySummaryResponse>(response.data);
   },
 };
 

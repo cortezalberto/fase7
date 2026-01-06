@@ -2,7 +2,8 @@
  * EvaluationResultView Component
  * Muestra el resultado de la evaluación de Alex con todas las dimensiones
  */
-import React, { useState } from 'react';
+// Cortez93: Removed unnecessary React default import (React 19 JSX transform)
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { 
   CheckCircle, 

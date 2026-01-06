@@ -2,7 +2,9 @@
  * CodeEditor Component
  * Editor de código simple con syntax highlighting
  */
-import React, { useRef, useEffect } from 'react';
+// Cortez93: Removed unnecessary React default import (React 19 JSX transform)
+import { useRef, useEffect } from 'react';
+import type { ChangeEvent, KeyboardEvent } from 'react';
 import { Code } from 'lucide-react';
 
 interface CodeEditorProps {
@@ -35,13 +37,13 @@ export function CodeEditor({
     };
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     if (!readOnly) {
       onChange(e.target.value);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       const target = e.target as HTMLTextAreaElement;
@@ -79,8 +81,9 @@ export function CodeEditor({
       <div className="relative">
         {showLineNumbers && (
           <div className="absolute left-0 top-0 bottom-0 w-12 bg-gray-50 border-r border-gray-200 text-gray-500 text-sm font-mono py-4 text-right pr-2 select-none">
+            {/* Cortez93: Use semantic key instead of index for proper React reconciliation */}
             {lines.map((_, idx) => (
-              <div key={idx} className="leading-6">
+              <div key={`line-${idx}`} className="leading-6">
                 {idx + 1}
               </div>
             ))}

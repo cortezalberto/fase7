@@ -22,7 +22,8 @@
 # ============================================================================
 # STAGE 1: Builder - Instalar dependencias
 # ============================================================================
-FROM python:3.11.9-slim AS builder
+# Updated: Cortez94 - January 2026 (Python 3.12 LTS)
+FROM python:3.12-slim AS builder
 
 # Build arguments for versioning and traceability
 ARG VERSION=0.1.0
@@ -56,7 +57,7 @@ RUN pip install --user --no-cache-dir --upgrade pip && \
 # ============================================================================
 # STAGE 2: Runtime - Imagen final ligera
 # ============================================================================
-FROM python:3.11.9-slim
+FROM python:3.12-slim
 
 # Build arguments (must be redeclared after FROM)
 ARG VERSION=0.1.0

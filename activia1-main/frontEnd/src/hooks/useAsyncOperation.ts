@@ -87,12 +87,15 @@ export function useAsyncOperation<T>(
 
   /**
    * Reset state to initial values
+   * Cortez93: Removed initialData from dependencies to prevent unnecessary callback recreation
+   * The initialData is captured at hook call time which is the expected behavior
    */
   const reset = useCallback(() => {
     if (isMountedRef.current) {
       setState({ data: initialData, loading: false, error: null });
     }
-  }, [initialData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Manually set data (useful for optimistic updates)

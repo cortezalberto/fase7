@@ -1,7 +1,8 @@
 # ============================================================================
 # AI-Native MVP - Monitoring Stack (Prometheus + Grafana)
 # ============================================================================
-# Cortez44: Extracted from docker-compose.yml for modularization
+# Updated: Cortez94 - January 2026
+# - Prometheus 2.54, Grafana 11.3
 #
 # Usage:
 #   docker-compose -f docker-compose.base.yml -f docker-compose.monitoring.yml up -d
@@ -9,10 +10,10 @@
 
 services:
   # ==========================================================================
-  # Prometheus - Metrics Storage & Querying
+  # Prometheus - Metrics Storage & Querying (Cortez94: Updated to 2.54)
   # ==========================================================================
   prometheus:
-    image: prom/prometheus:v2.48.0
+    image: prom/prometheus:v2.54.0
     container_name: ai-native-prometheus
     ports:
       - "9090:9090"
@@ -43,10 +44,10 @@ services:
       - api
 
   # ==========================================================================
-  # Grafana - Visualization & Dashboards
+  # Grafana - Visualization & Dashboards (Cortez94: Updated to 11.3)
   # ==========================================================================
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:11.3.0
     container_name: ai-native-grafana
     ports:
       - "3001:3000"

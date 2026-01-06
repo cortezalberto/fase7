@@ -1,8 +1,15 @@
-import React, { useState } from 'react';
+// Cortez93: Migrated to React 19 useActionState for cleaner form state management
+import { useState, useActionState, type ChangeEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Sparkles, Eye, EyeOff, ArrowRight, Loader2, User, Mail, Lock } from 'lucide-react';
 import axios from 'axios';
+
+// Cortez93: Form state type for useActionState
+interface RegisterFormState {
+  error: string | null;
+  success: boolean;
+}
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -13,48 +20,44 @@ export default function RegisterPage() {
     fullName: ''
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  
+
   const { register } = useAuth();
   const navigate = useNavigate();
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Las contraseñas no coinciden');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres');
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      await register(formData.username, formData.email, formData.password, formData.fullName);
-      navigate('/dashboard');
-    } catch (err: unknown) {
-      // FIX Cortez32: Use axios.isAxiosError for proper type narrowing
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.detail || 'Error al registrar usuario');
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Error desconocido al registrar usuario');
+  // Cortez93: React 19 useActionState for form submission
+  // Replaces manual isLoading/error state management
+  const [formState, submitAction, isPending] = useActionState<RegisterFormState, FormData>(
+    async (_prevState, _formData): Promise<RegisterFormState> => {
+      // Validation before submission
+      if (formData.password !== formData.confirmPassword) {
+        return { error: 'Las contraseñas no coinciden', success: false };
       }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+
+      if (formData.password.length < 6) {
+        return { error: 'La contraseña debe tener al menos 6 caracteres', success: false };
+      }
+
+      try {
+        await register(formData.username, formData.email, formData.password, formData.fullName);
+        navigate('/dashboard');
+        return { error: null, success: true };
+      } catch (err: unknown) {
+        // FIX Cortez32: Use axios.isAxiosError for proper type narrowing
+        let errorMsg = 'Error desconocido al registrar usuario';
+        if (axios.isAxiosError(err)) {
+          errorMsg = err.response?.data?.detail || 'Error al registrar usuario';
+        } else if (err instanceof Error) {
+          errorMsg = err.message;
+        }
+        return { error: errorMsg, success: false };
+      }
+    },
+    { error: null, success: false }
+  );
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center p-8">
@@ -83,13 +86,15 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          {error && (
+          {/* Cortez93: Use formState.error from useActionState */}
+          {formState.error && (
             <div className="mb-6 p-4 rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 text-[var(--error)] text-sm animate-slideIn">
-              {error}
+              {formState.error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Cortez93: Use action prop with submitAction from useActionState */}
+          <form action={submitAction} className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
@@ -184,12 +189,13 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* Cortez93: Use isPending from useActionState instead of manual isLoading */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isPending}
               className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
             >
-              {isLoading ? (
+              {isPending ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <>

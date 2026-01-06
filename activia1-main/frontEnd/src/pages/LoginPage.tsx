@@ -1,58 +1,61 @@
-import { useState } from 'react';
+// Cortez93: Migrated to React 19 useActionState for cleaner form state management
+import { useState, useActionState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { authService } from '../services/api';
 import { Sparkles, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
+// Cortez93: Form state type for useActionState
+interface LoginFormState {
+  error: string | null;
+  success: boolean;
+}
+
 export default function LoginPage() {
   // FIX Cortez48: Demo credentials only in development mode
   const [username, setUsername] = useState(import.meta.env.DEV ? 'student@activia.com' : '');
   const [password, setPassword] = useState(import.meta.env.DEV ? 'Student1234' : '');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  
+
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsLoading(true);
+  // Cortez93: React 19 useActionState for form submission
+  // Replaces manual isLoading/error state management
+  const [formState, submitAction, isPending] = useActionState<LoginFormState, FormData>(
+    async (_prevState, _formData): Promise<LoginFormState> => {
+      // FIX Cortez71 CRIT-002: Removed credential logging for security
+      try {
+        await login(username, password);
+        // Redirect based on user role
+        const user = authService.getCurrentUser();
+        if (user?.roles?.includes('teacher')) {
+          navigate('/teacher/dashboard');
+        } else {
+          navigate('/dashboard');
+        }
+        return { error: null, success: true };
+      } catch (err: unknown) {
+        // FIX Cortez71 CRIT-002: Removed all credential-related logging
+        // The interceptor transforms errors to { success: false, error: { message, error_code } }
+        const apiError = err as { success?: boolean; error?: { message?: string; error_code?: string } };
 
-    // FIX Cortez71 CRIT-002: Removed credential logging for security
-
-    try {
-      await login(username, password);
-      // Redirect based on user role
-      const user = authService.getCurrentUser();
-      if (user?.roles?.includes('teacher')) {
-        navigate('/teacher/dashboard');
-      } else {
-        navigate('/dashboard');
+        let errorMsg = 'Error desconocido al iniciar sesión';
+        if (apiError?.error?.message) {
+          errorMsg = apiError.error.message;
+        } else if (axios.isAxiosError(err)) {
+          errorMsg = err.response?.data?.error?.message
+            || err.response?.data?.detail
+            || 'Credenciales incorrectas';
+        } else if (err instanceof Error) {
+          errorMsg = err.message;
+        }
+        return { error: errorMsg, success: false };
       }
-    } catch (err: unknown) {
-      // FIX Cortez71 CRIT-002: Removed all credential-related logging
-      // The interceptor transforms errors to { success: false, error: { message, error_code } }
-      const apiError = err as { success?: boolean; error?: { message?: string; error_code?: string } };
-
-      if (apiError?.error?.message) {
-        setError(apiError.error.message);
-      } else if (axios.isAxiosError(err)) {
-        const errorMsg = err.response?.data?.error?.message
-          || err.response?.data?.detail
-          || 'Credenciales incorrectas';
-        setError(errorMsg);
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Error desconocido al iniciar sesión');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+    { error: null, success: false }
+  );
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] flex">
@@ -124,13 +127,15 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {error && (
+            {/* Cortez93: Use formState.error from useActionState */}
+            {formState.error && (
               <div className="mb-6 p-4 rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/30 text-[var(--error)] text-sm animate-slideIn">
-                {error}
+                {formState.error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
+            {/* Cortez93: Use action prop with submitAction from useActionState */}
+            <form action={submitAction} className="space-y-5" autoComplete="off">
               {/* Hidden fields to trick browser autocomplete */}
               <input type="text" name="prevent_autofill" id="prevent_autofill" style={{ display: 'none' }} />
               <input type="password" name="password_fake" id="password_fake" style={{ display: 'none' }} />
@@ -188,12 +193,13 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {/* Cortez93: Use isPending from useActionState instead of manual isLoading */}
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isPending}
                 className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
               >
-                {isLoading ? (
+                {isPending ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>

@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { sessionsService, teacherTraceabilityService, TraceabilitySummaryResponse } from '../services/api';
 import apiClient from '../services/api/client';
+import { unwrapResponse } from '../utils';
 import {
   Activity,
   AlertTriangle,
@@ -136,8 +137,8 @@ export default function StudentMonitoringPage() {
       const params = severityFilter !== 'all' ? `?severity=${severityFilter}` : '';
       const response = await apiClient.get<{ data: AlertsResponse }>(`/teacher/alerts${params}`);
       if (signal?.aborted) return;
-      const data = response.data;
-      setAlerts('data' in data ? data.data : data as unknown as AlertsResponse);
+      // Cortez93: Use unwrapResponse utility to eliminate as unknown assertion
+      setAlerts(unwrapResponse<AlertsResponse>(response.data));
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       // FIX HIGH-006 Cortez77: Logging condicional en DEV
@@ -152,8 +153,8 @@ export default function StudentMonitoringPage() {
     try {
       const response = await apiClient.get<{ data: StudentComparison }>(`/teacher/students/compare?activity_id=${activityFilter}`);
       if (signal?.aborted) return;
-      const data = response.data;
-      setComparison('data' in data ? data.data : data as unknown as StudentComparison);
+      // Cortez93: Use unwrapResponse utility to eliminate as unknown assertion
+      setComparison(unwrapResponse<StudentComparison>(response.data));
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       // FIX HIGH-006 Cortez77: Logging condicional en DEV

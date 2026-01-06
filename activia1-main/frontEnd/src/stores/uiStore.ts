@@ -12,7 +12,7 @@
  * - No provider wrapping needed
  */
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, devtools } from 'zustand/middleware';
 
 type Theme = 'light' | 'dark';
 
@@ -47,9 +47,14 @@ const initialState: UIState = {
  * // Or get multiple values:
  * const { theme, sidebarCollapsed } = useUIStore();
  */
+/**
+ * Cortez93: Added devtools middleware for better debugging in development
+ * DevTools shows state changes in Redux DevTools browser extension
+ */
 export const useUIStore = create<UIStore>()(
-  persist(
-    (set, get) => ({
+  devtools(
+    persist(
+      (set, get) => ({
       // State
       ...initialState,
 
@@ -95,6 +100,8 @@ export const useUIStore = create<UIStore>()(
         }
       },
     }
+    ),
+    { name: 'ui-store', enabled: import.meta.env.DEV }
   )
 );
 
